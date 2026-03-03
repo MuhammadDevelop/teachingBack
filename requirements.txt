@@ -4,7 +4,6 @@ uvicorn[standard]==0.27.1
 python-multipart==0.0.9
 
 # Database
-# asyncpg va sqlalchemy uchun mos keladigan versiyalar
 sqlalchemy==2.0.27
 asyncpg==0.29.0
 alembic==1.13.1
