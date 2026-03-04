@@ -1,5 +1,19 @@
 from app.models.user import User, UserCourse
-from app.models.course import Course, Category, Lesson, Video
+from app.models.course import Module, Course, Lesson
 from app.models.payment import Payment
+from app.models.test import Test, TestQuestion, TestSubmission
+from app.models.homework import Homework, HomeworkSubmission
+from app.models.game import GameExample, GameSubmission
+from app.models.exam import Exam, ExamQuestion, ExamSubmission
+from app.models.progress import LessonProgress, TeacherRating
 
-__all__ = ["User", "UserCourse", "Course", "Category", "Lesson", "Video", "Payment"]
+__all__ = [
+    "User", "UserCourse",
+    "Module", "Course", "Lesson",
+    "Payment",
+    "Test", "TestQuestion", "TestSubmission",
+    "Homework", "HomeworkSubmission",
+    "GameExample", "GameSubmission",
+    "Exam", "ExamQuestion", "ExamSubmission",
+    "LessonProgress", "TeacherRating",
+]

@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: mdev-teaching-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: ADMIN_PHONE
+        value: "998889810206"
+      - key: CARD_NUMBER
+        value: "5614 6819 0511 2722"
+      - key: CARD_HOLDER
+        value: "Orifjonov Muhammaddiyor"
+      - key: CARD_EXPIRY
+        value: "07/30"
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: mdev-teaching-api
+          property: host
+      - key: PYTHON_VERSION
+        value: "3.11.0"

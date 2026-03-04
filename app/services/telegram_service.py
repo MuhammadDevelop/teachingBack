@@ -3,7 +3,7 @@ import string
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 from app.config import get_settings
@@ -22,48 +22,29 @@ async def send_code_to_user(db: AsyncSession, user: User) -> str:
     return code
 
 
-async def send_telegram_message(chat_id: int, text: str, token: str) -> bool:
-    try:
-        import httpx
-        async with httpx.AsyncClient() as client:
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            await client.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
-        return True
-    except Exception:
-        return False
-
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 <b>Salom! Online Teaching platformasiga xush kelibsiz!</b>\n\n"
-        "📱 Ro'yxatdan o'tish uchun telefon raqamingizni yuboring.\n"
-        "Keyin sizga login kodi yuboriladi.\n\n"
+        "👋 <b>Salom! MDevning Online Teaching platformasiga xush kelibsiz!</b>\n\n"
+        "📱 Login kodi olish uchun telefon raqamingizni yuboring.\n"
+        "Avval saytdan ro'yxatdan o'ting, keyin bu yerga raqamingizni yuboring.\n\n"
         "📲 Raqamni quyidagi formatda yuboring:\n"
         "<code>998901234567</code>",
         parse_mode="HTML"
     )
 
 
-async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # Handled in bot runner with db access
-
-
-def create_bot_application():
-    settings = get_settings()
-    app = Application.builder().token(settings.telegram_bot_token).build()
-    app.add_handler(CommandHandler("start", start_command))
-    return app
-
-
-async def run_bot_with_db(db_session_factory):
-    """Run bot with database session for handling phone/code requests"""
+def create_webhook_bot(db_session_factory):
+    """Create bot application for webhook mode (Render)"""
     settings = get_settings()
     if not settings.telegram_bot_token:
-        return
+        return None
 
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        text = update.message.text or ""
-        text = text.replace(" ", "").replace("+", "").replace("-", "")
+        if not update.message or not update.message.text:
+            return
+
+        text = update.message.text.replace(" ", "").replace("+", "").replace("-", "")
+
         if text.startswith("998") and len(text) == 12 and text.isdigit():
             async with db_session_factory() as db:
                 result = await db.execute(select(User).where(User.phone == text))
@@ -83,7 +64,7 @@ async def run_bot_with_db(db_session_factory):
                 else:
                     await update.message.reply_text(
                         "❌ Bu raqam ro'yxatdan o'tmagan.\n"
-                        "Avval platformada ro'yxatdan o'ting va telefon raqamingizni kiriting."
+                        "Avval saytda ro'yxatdan o'ting va telefon raqamingizni kiriting."
                     )
         else:
             await update.message.reply_text(
@@ -96,3 +77,35 @@ async def run_bot_with_db(db_session_factory):
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     return app
+
+
+async def run_bot_polling(db_session_factory):
+    """Run bot in polling mode (for local development)"""
+    app = create_webhook_bot(db_session_factory)
+    if not app:
+        print("TELEGRAM_BOT_TOKEN not set, bot won't run")
+        return
+
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(drop_pending_updates=True)
+    print("🤖 Bot running in polling mode...")
+    import asyncio
+    await asyncio.Event().wait()
+
+
+async def setup_webhook(app, webhook_url: str):
+    """Set webhook URL for the bot"""
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        return
+
+    import httpx
+    async with httpx.AsyncClient() as client:
+        url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/setWebhook"
+        resp = await client.post(url, json={"url": webhook_url})
+        data = resp.json()
+        if data.get("ok"):
+            print(f"✅ Webhook set: {webhook_url}")
+        else:
+            print(f"❌ Webhook error: {data}")

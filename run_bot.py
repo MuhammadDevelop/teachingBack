@@ -1,17 +1,11 @@
 import asyncio
 from app.database import AsyncSessionLocal
-from app.services.telegram_service import run_bot_with_db
+from app.services.telegram_service import run_bot_polling
 
 
 async def main():
-    app = await run_bot_with_db(AsyncSessionLocal)
-    if app:
-        await app.initialize()
-        await app.start()
-        print("Bot is running 24/7...")
-        await asyncio.Event().wait()
-    else:
-        print("Set TELEGRAM_BOT_TOKEN in .env to run bot")
+    """Run bot in polling mode for local development"""
+    await run_bot_polling(AsyncSessionLocal)
 
 
 if __name__ == "__main__":
