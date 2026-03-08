@@ -427,6 +427,8 @@ async def list_payments(status: str = None, db: AsyncSession = Depends(get_db), 
             "amount": p.amount, "status": p.status,
             "check_image_url": p.check_image_url,
             "admin_comment": p.admin_comment,
+            "ai_verified": p.ai_verified,
+            "ai_comment": p.ai_comment,
             "created_at": str(p.created_at),
             "reviewed_at": str(p.reviewed_at) if p.reviewed_at else None,
         })
@@ -445,7 +447,7 @@ async def review_payment(
     payment = result.scalar_one_or_none()
     if not payment:
         raise HTTPException(status_code=404, detail="To'lov topilmadi")
-    if payment.status != "pending":
+    if payment.status not in ["pending", "auto_approved"]:
         raise HTTPException(status_code=400, detail="Bu to'lov allaqachon ko'rib chiqilgan")
 
     payment.status = data.status
@@ -497,3 +499,149 @@ async def grant_course(user_id: int, course_id: int, db: AsyncSession = Depends(
         db.add(uc)
     await db.commit()
     return {"success": True}
+
+
+# ==================== CERTIFICATES ====================
+@router.get("/certificates")
+async def list_certificates(db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    from app.models.certificate import Certificate
+    result = await db.execute(
+        select(Certificate).order_by(Certificate.created_at.desc())
+    )
+    certs = result.scalars().all()
+    response = []
+    for c in certs:
+        u = await db.execute(select(User).where(User.id == c.user_id))
+        user = u.scalar_one_or_none()
+        response.append({
+            "id": c.id,
+            "user_id": c.user_id,
+            "user_name": user.full_name if user else "?",
+            "title": c.title,
+            "description": c.description,
+            "file_url": c.file_url,
+            "issued_at": str(c.issued_at),
+        })
+    return response
+
+
+@router.post("/certificates")
+async def send_certificate(
+    user_id: int, title: str, file_url: str,
+    description: str = "",
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    from app.models.certificate import Certificate
+    cert = Certificate(
+        user_id=user_id,
+        title=title,
+        description=description,
+        file_url=file_url,
+    )
+    db.add(cert)
+    await db.commit()
+    return {"id": cert.id, "message": "Sertifikat yuborildi"}
+
+
+@router.delete("/certificates/{cert_id}")
+async def delete_certificate(cert_id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    from app.models.certificate import Certificate
+    result = await db.execute(select(Certificate).where(Certificate.id == cert_id))
+    cert = result.scalar_one_or_none()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Sertifikat topilmadi")
+    await db.delete(cert)
+    await db.commit()
+    return {"success": True}
+
+
+# ==================== SELECT DROPDOWN DATA ====================
+@router.get("/select/modules")
+async def get_modules_for_select(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Admin formasi uchun modullar ro'yxati (select dropdown)"""
+    result = await db.execute(select(Module).where(Module.is_active == True).order_by(Module.order))
+    modules = result.scalars().all()
+    return [{"id": m.id, "name": m.name, "price": m.price} for m in modules]
+
+
+@router.get("/select/courses")
+async def get_courses_for_select(
+    module_id: int = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Admin formasi uchun kurslar ro'yxati (select dropdown)
+    
+    module_id berilsa, faqat shu moduldagi kurslar qaytariladi.
+    """
+    q = select(Course).where(Course.is_active == True).order_by(Course.order)
+    if module_id:
+        q = q.where(Course.module_id == module_id)
+    result = await db.execute(q)
+    courses = result.scalars().all()
+    
+    response = []
+    for c in courses:
+        module_result = await db.execute(select(Module).where(Module.id == c.module_id))
+        module = module_result.scalar_one_or_none()
+        response.append({
+            "id": c.id,
+            "name": c.name,
+            "module_id": c.module_id,
+            "module_name": module.name if module else "",
+        })
+    return response
+
+
+@router.get("/select/lessons")
+async def get_lessons_for_select(
+    course_id: int = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Admin formasi uchun darslar ro'yxati (select dropdown)
+    
+    course_id berilsa, faqat shu kursdagi darslar qaytariladi.
+    Test/Vazifa/O'yin yaratishda lesson_id tanlash uchun ishlatiladi.
+    """
+    q = select(Lesson).order_by(Lesson.order)
+    if course_id:
+        q = q.where(Lesson.course_id == course_id)
+    result = await db.execute(q)
+    lessons = result.scalars().all()
+    
+    response = []
+    for l in lessons:
+        course_result = await db.execute(select(Course).where(Course.id == l.course_id))
+        course = course_result.scalar_one_or_none()
+        response.append({
+            "id": l.id,
+            "title": l.title,
+            "order": l.order,
+            "course_id": l.course_id,
+            "course_name": course.name if course else "",
+            "has_test": l.test is not None,
+            "has_homework": l.homework is not None,
+            "has_game": l.game is not None,
+        })
+    return response
+
+
+@router.get("/select/students")
+async def get_students_for_select(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Admin formasi uchun o'quvchilar ro'yxati (select dropdown)
+    
+    Sertifikat berish, kurs berish uchun student tanlash.
+    """
+    result = await db.execute(
+        select(User).where(User.role == "student", User.is_active == True).order_by(User.full_name)
+    )
+    users = result.scalars().all()
+    return [{"id": u.id, "name": u.full_name, "phone": u.phone} for u in users]

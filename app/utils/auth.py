@@ -40,7 +40,7 @@ async def get_current_user(
 ) -> User:
     token = credentials.credentials
     payload = verify_token(token)
-    user_id = payload.get("sub")
+    user_id = payload.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 

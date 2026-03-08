@@ -6,7 +6,7 @@ from telegram import Update
 
 from app.database import engine, Base, AsyncSessionLocal
 from app.routers import auth, courses, payments, admin
-from app.routers import profile, tests, games, homework, exams, rating
+from app.routers import profile, tests, games, homework, exams, rating, chat, certificates
 from app.config import get_settings
 from app.services.telegram_service import create_webhook_bot, setup_webhook
 
@@ -17,9 +17,15 @@ bot_app = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot_app
-    # Create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Create tables (skip if already exist)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        if "already exists" in str(e):
+            print("ℹ️ Jadvallar allaqachon mavjud, o'tkazib yuborildi")
+        else:
+            raise
 
     # Setup telegram bot webhook
     bot_app = create_webhook_bot(AsyncSessionLocal)
@@ -73,6 +79,8 @@ app.include_router(exams.router)
 app.include_router(payments.router)
 app.include_router(rating.router)
 app.include_router(admin.router)
+app.include_router(chat.router)
+app.include_router(certificates.router)
 
 
 @app.get("/")

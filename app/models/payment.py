@@ -16,6 +16,8 @@ class Payment(Base):
     admin_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ai_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    ai_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship("User", back_populates="payments", foreign_keys=[user_id])

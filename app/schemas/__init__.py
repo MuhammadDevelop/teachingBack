@@ -1,4 +1,4 @@
-from app.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse, SendCodeResponse, UserProfileUpdate
+from app.schemas.user import UserRegister, UserLogin, UserResponse, UserProfileUpdate
 from app.schemas.course import (
     ModuleResponse, ModuleCreate, ModuleUpdate, ModuleWithCoursesResponse,
     CourseResponse, CourseCreate, CourseUpdate, CourseWithLessonsResponse,

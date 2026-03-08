@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, DateTime, Boolean, ForeignKey, Integer, Text
+from sqlalchemy import String, DateTime, Boolean, ForeignKey, Integer, Text, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 import enum
@@ -16,7 +16,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
-    telegram_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     verification_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     code_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)

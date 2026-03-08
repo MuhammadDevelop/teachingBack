@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     card_holder: str = "Orifjonov Muhammaddiyor"
     card_expiry: str = "07/30"
 
+    # AI (Google Gemini)
+    gemini_api_key: str = ""
+
     # Render
     render_external_url: str = ""
     port: int = 8000

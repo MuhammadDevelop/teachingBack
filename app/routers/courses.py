@@ -28,7 +28,7 @@ async def get_optional_user(
         return None
     try:
         payload = verify_token(credentials.credentials)
-        user_id = payload.get("sub")
+        user_id = payload.get("user_id")
         if not user_id:
             return None
         result = await db.execute(select(User).where(User.id == int(user_id)))
@@ -236,7 +236,13 @@ async def get_lesson_progress(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Get progress for a specific lesson"""
+    """Get progress for a specific lesson, including video_url and description"""
+    # Get lesson info
+    lesson_result = await db.execute(select(Lesson).where(Lesson.id == lesson_id))
+    lesson = lesson_result.scalar_one_or_none()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Dars topilmadi")
+
     prog_result = await db.execute(
         select(LessonProgress).where(
             LessonProgress.user_id == user.id,
@@ -244,8 +250,18 @@ async def get_lesson_progress(
         )
     )
     progress = prog_result.scalar_one_or_none()
+
+    base = {
+        "title": lesson.title,
+        "description": lesson.description,
+        "video_url": lesson.video_url,
+        "is_free": lesson.is_free,
+        "order": lesson.order,
+    }
+
     if not progress:
         return {
+            **base,
             "video_watched": False,
             "test_passed": False,
             "game_completed": False,
@@ -254,6 +270,7 @@ async def get_lesson_progress(
         }
 
     return {
+        **base,
         "video_watched": progress.video_watched,
         "video_watched_at": str(progress.video_watched_at) if progress.video_watched_at else None,
         "test_passed": progress.test_passed,

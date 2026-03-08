@@ -11,6 +11,7 @@ from app.models.payment import Payment
 from app.schemas.payment import PaymentCreate, PaymentResponse, PaymentCardInfo
 from app.utils.auth import get_current_user
 from app.config import get_settings
+from app.services.payment_ai import verify_payment_check
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -33,7 +34,7 @@ async def submit_check(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Student uploads payment check/screenshot"""
+    """Student uploads payment check/screenshot - AI avtomatik tekshiradi"""
     # Get module and price
     module_result = await db.execute(select(Module).where(Module.id == module_id))
     module = module_result.scalar_one_or_none()
@@ -45,7 +46,7 @@ async def submit_check(
         select(Payment).where(
             Payment.user_id == user.id,
             Payment.module_id == module_id,
-            Payment.status == "approved"
+            Payment.status.in_(["approved", "auto_approved"])
         )
     )
     if existing.scalar_one_or_none():
@@ -71,20 +72,66 @@ async def submit_check(
     content_type = check_image.content_type or "image/jpeg"
     image_url = f"data:{content_type};base64,{image_b64}"
 
+    # AI bilan chekni tekshirish
+    ai_result = await verify_payment_check(image_url, expected_amount=module.price)
+
+    # AI tasdiqlasa auto_approved, aks holda pending
+    if ai_result["is_valid"] and ai_result["confidence"] >= 0.7:
+        status = "auto_approved"
+    else:
+        status = "pending"
+
     payment = Payment(
         user_id=user.id,
         module_id=module_id,
         amount=module.price,
         check_image_url=image_url,
-        status="pending"
+        status=status,
+        ai_verified=ai_result["is_valid"],
+        ai_comment=ai_result["ai_comment"],
     )
     db.add(payment)
     await db.commit()
 
+    # Agar auto_approved bo'lsa, darhol kurslarga kirish berish
+    if status == "auto_approved":
+        courses_result = await db.execute(
+            select(Course).where(Course.module_id == module_id)
+        )
+        courses = courses_result.scalars().all()
+        for course in courses:
+            uc_result = await db.execute(
+                select(UserCourse).where(
+                    UserCourse.user_id == user.id,
+                    UserCourse.course_id == course.id
+                )
+            )
+            uc = uc_result.scalar_one_or_none()
+            if uc:
+                uc.is_paid = True
+                uc.purchased_at = datetime.utcnow()
+            else:
+                uc = UserCourse(
+                    user_id=user.id,
+                    course_id=course.id,
+                    is_paid=True,
+                    purchased_at=datetime.utcnow()
+                )
+                db.add(uc)
+        await db.commit()
+
+        return {
+            "message": "✅ To'lov AI tomonidan tasdiqlandi! Kurslarga kirish ochildi.",
+            "payment_id": payment.id,
+            "status": "auto_approved",
+            "ai_comment": ai_result["ai_comment"],
+        }
+
     return {
-        "message": "To'lov cheki yuborildi, tekshirilmoqda",
+        "message": "To'lov cheki yuborildi, admin tekshirmoqda",
         "payment_id": payment.id,
         "status": "pending",
+        "ai_comment": ai_result["ai_comment"],
     }
 
 
@@ -108,6 +155,8 @@ async def get_my_payments(
             "amount": p.amount,
             "status": p.status,
             "admin_comment": p.admin_comment,
+            "ai_comment": p.ai_comment,
+            "ai_verified": p.ai_verified,
             "created_at": str(p.created_at),
             "reviewed_at": str(p.reviewed_at) if p.reviewed_at else None,
         })
