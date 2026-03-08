@@ -5,34 +5,29 @@ from app.config import get_settings
 
 settings = get_settings()
 
-# Use default if DATABASE_URL is empty in .env
-db_url_raw = settings.database_url
-if not db_url_raw or db_url_raw.strip() == "":
-    db_url_raw = "postgresql+asyncpg://postgres:postgres@localhost:5432/online_teach"
+# 1. URL-ni tozalash va formatlash
+db_url = settings.database_url
+if db_url and "sslmode=require" in db_url:
+    # sslmode=require qismini olib tashlaymiz, chunki asyncpg buni connect_args orqali hal qiladi
+    db_url = db_url.split("?")[0]
 
-# Create SSL context for Neon/cloud databases
-connect_args = {}
-if "neon.tech" in db_url_raw or "sslmode=require" in db_url_raw:
-    ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode = ssl.CERT_NONE
-    connect_args = {"ssl": ssl_ctx}
+# 2. Neon.tech uchun maxsus SSL sozlamasi
+ssl_ctx = ssl.create_default_context()
+ssl_ctx.check_hostname = False
+ssl_ctx.verify_mode = ssl.CERT_NONE
 
-# Remove sslmode from URL (asyncpg handles ssl via connect_args)
-db_url = db_url_raw.split("?")[0] if "sslmode" in db_url_raw else db_url_raw
-
+# 3. Engine yaratish (Faqat asinxron drayver bilan)
 engine = create_async_engine(
-    db_url, 
-    echo=False, 
-    pool_pre_ping=True, 
-    connect_args={"ssl": ssl_ctx} if "ssl_ctx" in locals() else {}
+    db_url,
+    echo=False,
+    pool_pre_ping=True,
+    connect_args={"ssl": ssl_ctx}  # SSL-ni shu yerda majburiy ko'rsatamiz
 )
-AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 class Base(DeclarativeBase):
     pass
-
 
 async def get_db():
     async with AsyncSessionLocal() as session:
