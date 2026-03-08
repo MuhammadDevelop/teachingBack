@@ -31,11 +31,12 @@ async def lifespan(app: FastAPI):
     bot_app = create_webhook_bot(AsyncSessionLocal)
     if bot_app:
         await bot_app.initialize()
-        webhook_base = settings.render_external_url or settings.frontend_url
-        if "onrender.com" in webhook_base or settings.render_external_url:
+        if settings.render_external_url:
             webhook_url = f"{settings.render_external_url}/webhook/telegram"
             await setup_webhook(bot_app, webhook_url)
             print(f"🤖 Bot webhook mode: {webhook_url}")
+        else:
+            print("ℹ️ RENDER_EXTERNAL_URL yo'q, webhook o'rnatilmadi (lokal rejim)")
 
     yield
 

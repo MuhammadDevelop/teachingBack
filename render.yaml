@@ -21,10 +21,7 @@ services:
         value: "Orifjonov Muhammaddiyor"
       - key: CARD_EXPIRY
         value: "07/30"
-      - key: RENDER_EXTERNAL_URL
-        fromService:
-          type: web
-          name: mdev-teaching-api
-          property: host
+      - key: GEMINI_API_KEY
+        sync: false
       - key: PYTHON_VERSION
         value: "3.11.0"
