@@ -7,9 +7,19 @@ settings = get_settings()
 
 # 1. URL-ni tozalash va formatlash
 db_url = settings.database_url
-if db_url and "sslmode=require" in db_url:
+
+# Har qanday postgres URL ni asyncpg formatiga o'zgartirish
+if db_url:
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif db_url.startswith("postgresql+psycopg2://"):
+        db_url = db_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+
     # sslmode=require qismini olib tashlaymiz, chunki asyncpg buni connect_args orqali hal qiladi
-    db_url = db_url.split("?")[0]
+    if "sslmode=require" in db_url:
+        db_url = db_url.split("?")[0]
 
 # 2. Neon.tech uchun maxsus SSL sozlamasi
 ssl_ctx = ssl.create_default_context()
