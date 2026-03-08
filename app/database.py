@@ -21,7 +21,12 @@ if "neon.tech" in db_url_raw or "sslmode=require" in db_url_raw:
 # Remove sslmode from URL (asyncpg handles ssl via connect_args)
 db_url = db_url_raw.split("?")[0] if "sslmode" in db_url_raw else db_url_raw
 
-engine = create_async_engine(db_url, echo=False, pool_pre_ping=True, connect_args=connect_args)
+engine = create_async_engine(
+    db_url, 
+    echo=False, 
+    pool_pre_ping=True, 
+    connect_args={"ssl": ssl_ctx} if "ssl_ctx" in locals() else {}
+)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
