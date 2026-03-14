@@ -34,11 +34,13 @@ def create_webhook_bot(db_session_factory):
     if not settings.telegram_bot_token:
         return None
 
-    async def send_code_to_user(db, user, telegram_id):
+    async def send_code_to_user(db, user, telegram_id, username=None):
         """Generate and save code for user"""
         code = generate_code()
         user.verification_code = code
         user.telegram_id = telegram_id
+        if username:
+            user.telegram_username = username
         user.code_expires_at = datetime.utcnow() + timedelta(minutes=10)
         await db.commit()
         return code
@@ -55,7 +57,7 @@ def create_webhook_bot(db_session_factory):
                 result = await db.execute(select(User).where(User.phone == text))
                 user = result.scalar_one_or_none()
                 if user:
-                    code = await send_code_to_user(db, user, telegram_id)
+                    code = await send_code_to_user(db, user, telegram_id, update.effective_user.username)
                     keyboard = [[InlineKeyboardButton("🔄 Kodni yangilash", callback_data="refresh_code")]]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     await update.message.reply_text(

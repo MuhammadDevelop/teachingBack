@@ -420,9 +420,18 @@ async def list_payments(status: str = None, db: AsyncSession = Depends(get_db), 
         user = user_result.scalar_one_or_none()
         module_result = await db.execute(select(Module).where(Module.id == p.module_id))
         module = module_result.scalar_one_or_none()
+        # Telegram link yaratish
+        tg_link = None
+        if user:
+            if user.telegram_username:
+                tg_link = f"https://t.me/{user.telegram_username}"
+            elif user.telegram_id:
+                tg_link = f"tg://user?id={user.telegram_id}"
+
         response.append({
             "id": p.id, "user_id": p.user_id, "user_name": user.full_name if user else "",
             "user_phone": user.phone if user else "",
+            "telegram_link": tg_link,
             "module_id": p.module_id, "module_name": module.name if module else "",
             "amount": p.amount, "status": p.status,
             "check_image_url": p.check_image_url,

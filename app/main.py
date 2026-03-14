@@ -6,7 +6,7 @@ from telegram import Update
 
 from app.database import engine, Base, AsyncSessionLocal
 from app.routers import auth, courses, payments, admin
-from app.routers import profile, tests, games, homework, exams, rating, chat, certificates
+from app.routers import profile, tests, games, homework, exams, rating, chat, certificates, results
 from app.config import get_settings
 from app.services.telegram_service import create_webhook_bot, setup_webhook
 
@@ -82,6 +82,7 @@ app.include_router(rating.router)
 app.include_router(admin.router)
 app.include_router(chat.router)
 app.include_router(certificates.router)
+app.include_router(results.router)
 
 
 @app.get("/")
