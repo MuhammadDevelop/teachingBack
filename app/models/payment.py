@@ -11,7 +11,7 @@ class Payment(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     module_id: Mapped[int] = mapped_column(ForeignKey("modules.id", ondelete="CASCADE"), nullable=False)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)  # in so'm
-    check_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    check_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, approved, rejected
     admin_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)

@@ -1,12 +1,11 @@
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import base64
 
 from app.database import get_db
-from app.models.user import User, UserCourse
-from app.models.course import Module, Course
+from app.models.user import User
+from app.models.course import Module
 from app.models.payment import Payment
 from app.schemas.payment import PaymentCreate, PaymentResponse, PaymentCardInfo
 from app.utils.auth import get_current_user
@@ -34,7 +33,7 @@ async def submit_check(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Student uploads payment check/screenshot - AI avtomatik tekshiradi"""
+    """Student uploads payment check/screenshot - Admin tekshiradi"""
     # Get module and price
     module_result = await db.execute(select(Module).where(Module.id == module_id))
     module = module_result.scalar_one_or_none()
@@ -72,66 +71,34 @@ async def submit_check(
     content_type = check_image.content_type or "image/jpeg"
     image_url = f"data:{content_type};base64,{image_b64}"
 
-    # AI bilan chekni tekshirish
-    ai_result = await verify_payment_check(image_url, expected_amount=module.price)
+    # AI bilan chekni tekshirish (faqat admin uchun tavsiya/izoh sifatida)
+    ai_comment = ""
+    ai_verified = False
+    try:
+        ai_result = await verify_payment_check(image_url, expected_amount=module.price)
+        ai_comment = ai_result.get("ai_comment", "")
+        ai_verified = ai_result.get("is_valid", False)
+    except Exception as e:
+        ai_comment = f"AI tekshirish imkoni bo'lmadi: {str(e)[:100]}"
 
-    # AI tasdiqlasa auto_approved, aks holda pending
-    if ai_result["is_valid"] and ai_result["confidence"] >= 0.7:
-        status = "auto_approved"
-    else:
-        status = "pending"
-
+    # Har doim pending - admin tekshiradi
     payment = Payment(
         user_id=user.id,
         module_id=module_id,
         amount=module.price,
         check_image_url=image_url,
-        status=status,
-        ai_verified=ai_result["is_valid"],
-        ai_comment=ai_result["ai_comment"],
+        status="pending",
+        ai_verified=ai_verified,
+        ai_comment=ai_comment,
     )
     db.add(payment)
     await db.commit()
 
-    # Agar auto_approved bo'lsa, darhol kurslarga kirish berish
-    if status == "auto_approved":
-        courses_result = await db.execute(
-            select(Course).where(Course.module_id == module_id)
-        )
-        courses = courses_result.scalars().all()
-        for course in courses:
-            uc_result = await db.execute(
-                select(UserCourse).where(
-                    UserCourse.user_id == user.id,
-                    UserCourse.course_id == course.id
-                )
-            )
-            uc = uc_result.scalar_one_or_none()
-            if uc:
-                uc.is_paid = True
-                uc.purchased_at = datetime.utcnow()
-            else:
-                uc = UserCourse(
-                    user_id=user.id,
-                    course_id=course.id,
-                    is_paid=True,
-                    purchased_at=datetime.utcnow()
-                )
-                db.add(uc)
-        await db.commit()
-
-        return {
-            "message": "✅ To'lov AI tomonidan tasdiqlandi! Kurslarga kirish ochildi.",
-            "payment_id": payment.id,
-            "status": "auto_approved",
-            "ai_comment": ai_result["ai_comment"],
-        }
-
     return {
-        "message": "To'lov cheki yuborildi, admin tekshirmoqda",
+        "message": "✅ To'lov cheki yuborildi! Admin tekshirib, tasdiqlagandan so'ng kurslar ochiladi.",
         "payment_id": payment.id,
         "status": "pending",
-        "ai_comment": ai_result["ai_comment"],
+        "ai_comment": ai_comment,
     }
 
 
