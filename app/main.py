@@ -1,8 +1,11 @@
 import os
+import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from telegram import Update
+from sqlalchemy import text, inspect
 
 from app.database import engine, Base, AsyncSessionLocal
 from app.routers import auth, courses, payments, admin
@@ -17,32 +20,62 @@ bot_app = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot_app
-    # Create tables (skip if already exist)
+
+    # 1. Create tables (skip if already exist)
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        print("✅ Jadvallar tayyor")
     except Exception as e:
-        if "already exists" in str(e):
-            print("ℹ️ Jadvallar allaqachon mavjud, o'tkazib yuborildi")
-        else:
-            raise
+        print(f"⚠️ create_all: {e}")
 
-    # Setup telegram bot webhook
-    bot_app = create_webhook_bot(AsyncSessionLocal)
-    if bot_app:
-        await bot_app.initialize()
-        if settings.render_external_url:
-            webhook_url = f"{settings.render_external_url}/webhook/telegram"
-            await setup_webhook(bot_app, webhook_url)
-            print(f"🤖 Bot webhook mode: {webhook_url}")
-        else:
-            print("ℹ️ RENDER_EXTERNAL_URL yo'q, webhook o'rnatilmadi (lokal rejim)")
+    # 2. Auto-migrate: yangi ustunlar qo'shish
+    try:
+        async with engine.begin() as conn:
+            migrations = [
+                ("users", "telegram_username", "VARCHAR(100)"),
+            ]
+            for table_name, col_name, col_type in migrations:
+                try:
+                    # Ustun mavjudligini tekshirish
+                    check_sql = text(
+                        f"SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name = '{table_name}' AND column_name = '{col_name}'"
+                    )
+                    result = await conn.execute(check_sql)
+                    exists = result.fetchone()
+                    if not exists:
+                        await conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"))
+                        print(f"✅ {table_name}.{col_name} qo'shildi")
+                    else:
+                        print(f"ℹ️ {table_name}.{col_name} allaqachon mavjud")
+                except Exception as me:
+                    print(f"⚠️ Migration {table_name}.{col_name}: {me}")
+    except Exception as e:
+        print(f"⚠️ Migration error: {e}")
+
+    # 3. Setup telegram bot webhook
+    try:
+        bot_app = create_webhook_bot(AsyncSessionLocal)
+        if bot_app:
+            await bot_app.initialize()
+            if settings.render_external_url:
+                webhook_url = f"{settings.render_external_url}/webhook/telegram"
+                await setup_webhook(bot_app, webhook_url)
+                print(f"🤖 Bot webhook: {webhook_url}")
+            else:
+                print("ℹ️ RENDER_EXTERNAL_URL yo'q")
+    except Exception as e:
+        print(f"⚠️ Bot setup error: {e}")
+        bot_app = None
 
     yield
 
-    # Cleanup
     if bot_app:
-        await bot_app.shutdown()
+        try:
+            await bot_app.shutdown()
+        except:
+            pass
 
 
 app = FastAPI(
@@ -51,23 +84,26 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS
-allowed_origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-]
-if settings.frontend_url:
-    allowed_origins.append(settings.frontend_url)
-
+# CORS — barcha originlar uchun ruxsat (production uchun xavfsiz)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Global exception handler — 500 xatoliklarni to'g'ri qaytarish
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"❌ XATOLIK [{request.method} {request.url.path}]: {exc}")
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Serverda xatolik: {str(exc)[:200]}"},
+    )
+
 
 # Routers
 app.include_router(auth.router)
@@ -101,9 +137,12 @@ async def telegram_webhook(request: Request):
     if not bot_app:
         return {"ok": False}
 
-    data = await request.json()
-    update = Update.de_json(data, bot_app.bot)
-    await bot_app.process_update(update)
+    try:
+        data = await request.json()
+        update = Update.de_json(data, bot_app.bot)
+        await bot_app.process_update(update)
+    except Exception as e:
+        print(f"⚠️ Telegram webhook error: {e}")
     return {"ok": True}
 
 

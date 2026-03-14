@@ -5,7 +5,6 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.user import User
-from app.models.progress import LessonProgress
 from app.models.test import Test, TestSubmission
 from app.models.homework import Homework, HomeworkSubmission
 from app.models.game import GameExample, GameSubmission
@@ -26,7 +25,7 @@ async def get_my_results(
     test_results = []
     test_subs = await db.execute(
         select(TestSubmission).where(TestSubmission.user_id == user.id)
-        .order_by(TestSubmission.submitted_at.desc())
+        .order_by(TestSubmission.started_at.desc())
     )
     for sub in test_subs.scalars().all():
         test_result = await db.execute(select(Test).where(Test.id == sub.test_id))
@@ -42,9 +41,9 @@ async def get_my_results(
             "test_title": test.title if test else "",
             "lesson_title": lesson_title,
             "score": sub.score,
-            "total": sub.total_questions,
+            "total": sub.total,
             "passed": sub.passed,
-            "submitted_at": str(sub.submitted_at),
+            "submitted_at": str(sub.completed_at or sub.started_at),
         })
     
     # Homework natijalari
@@ -77,7 +76,7 @@ async def get_my_results(
     game_results = []
     game_subs = await db.execute(
         select(GameSubmission).where(GameSubmission.user_id == user.id)
-        .order_by(GameSubmission.submitted_at.desc())
+        .order_by(GameSubmission.started_at.desc())
     )
     for sub in game_subs.scalars().all():
         game_result = await db.execute(select(GameExample).where(GameExample.id == sub.game_id))
@@ -92,9 +91,9 @@ async def get_my_results(
             "id": sub.id,
             "game_title": game.title if game else "",
             "lesson_title": lesson_title,
-            "score": sub.score,
-            "completed": sub.completed,
-            "submitted_at": str(sub.submitted_at),
+            "score": 0,
+            "completed": sub.is_completed,
+            "submitted_at": str(sub.completed_at or sub.started_at),
         })
     
     return {

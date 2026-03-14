@@ -41,13 +41,19 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
         }
 
     role = UserRole.admin.value if phone == settings.admin_phone else UserRole.student.value
-    user = User(
-        full_name=data.full_name or "Foydalanuvchi",
-        phone=phone,
-        role=role,
-    )
-    db.add(user)
-    await db.commit()
+    try:
+        user = User(
+            full_name=data.full_name or "Foydalanuvchi",
+            phone=phone,
+            role=role,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    except Exception as e:
+        await db.rollback()
+        print(f"❌ Register xatolik: {e}")
+        raise HTTPException(status_code=400, detail=f"Ro'yxatdan o'tishda xatolik: {str(e)[:100]}")
 
     return {
         "message": "Ro'yxatdan o'tdingiz! Telegram botga o'ting",
