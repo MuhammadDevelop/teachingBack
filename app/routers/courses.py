@@ -152,6 +152,8 @@ async def get_course(
 
         # Check progress
         progress_data = None
+        has_requirements = lesson.test is not None or lesson.homework is not None or lesson.game is not None
+
         if user:
             prog_result = await db.execute(
                 select(LessonProgress).where(
@@ -169,9 +171,20 @@ async def get_course(
                     "homework_submitted": prog.homework_submitted,
                     "is_completed": prog.is_completed,
                 }
-                prev_completed = prog.is_completed
+                if has_requirements:
+                    prev_completed = prog.is_completed
+                else:
+                    # Lesson has no test/game/homework — video watched is enough
+                    prev_completed = prog.video_watched
             else:
-                prev_completed = False
+                if lesson.is_free and not has_requirements:
+                    # Free lesson with no requirements — don't block next lesson
+                    prev_completed = True
+                elif has_paid and not has_requirements:
+                    # Paid but no requirements — don't block next lesson
+                    prev_completed = True
+                else:
+                    prev_completed = False
         else:
             prev_completed = False
 
