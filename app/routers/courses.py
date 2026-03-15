@@ -9,6 +9,7 @@ from app.models.user import User, UserCourse
 from app.models.course import Module, Course, Lesson
 from app.models.progress import LessonProgress
 from app.models.exam import Exam
+from app.models.payment import Payment
 from app.schemas.course import (
     ModuleResponse, ModuleWithCoursesResponse, CourseResponse,
     CourseWithLessonsResponse, LessonDetailResponse,
@@ -37,27 +38,45 @@ async def get_optional_user(
         return None
 
 
-@router.get("/modules", response_model=list[ModuleWithCoursesResponse])
-async def get_modules(db: AsyncSession = Depends(get_db)):
-    """Get all modules with their courses"""
+@router.get("/modules")
+async def get_modules(
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_optional_user)
+):
+    """Get all modules with their courses and payment status"""
     result = await db.execute(
         select(Module).where(Module.is_active == True).order_by(Module.order)
     )
     modules = result.scalars().all()
     response = []
     for m in modules:
+        # Check if user has paid for this module
+        is_paid = False
+        if user:
+            payment_result = await db.execute(
+                select(Payment).where(
+                    Payment.user_id == user.id,
+                    Payment.module_id == m.id,
+                    Payment.status.in_(["approved", "auto_approved"])
+                )
+            )
+            is_paid = payment_result.scalar_one_or_none() is not None
+
         courses_result = await db.execute(
             select(Course).where(Course.module_id == m.id, Course.is_active == True).order_by(Course.order)
         )
         courses = courses_result.scalars().all()
-        response.append(ModuleWithCoursesResponse(
-            id=m.id, name=m.name, slug=m.slug, description=m.description,
-            price=m.price, order=m.order, is_active=m.is_active,
-            courses=[CourseResponse(
-                id=c.id, module_id=c.module_id, name=c.name, slug=c.slug,
-                description=c.description, thumbnail=c.thumbnail, order=c.order
-            ) for c in courses]
-        ))
+        response.append({
+            "id": m.id, "name": m.name, "slug": m.slug,
+            "description": m.description, "price": m.price,
+            "order": m.order, "is_active": m.is_active,
+            "is_paid": is_paid,
+            "courses": [{
+                "id": c.id, "module_id": c.module_id, "name": c.name,
+                "slug": c.slug, "description": c.description,
+                "thumbnail": c.thumbnail, "order": c.order
+            } for c in courses]
+        })
     return response
 
 
@@ -88,6 +107,7 @@ async def get_course(
     # Check if user has paid for this module
     has_paid = False
     if user:
+        # First check UserCourse table
         uc_result = await db.execute(
             select(UserCourse).where(
                 UserCourse.user_id == user.id,
@@ -96,6 +116,27 @@ async def get_course(
             )
         )
         has_paid = uc_result.scalar_one_or_none() is not None
+
+        # Fallback: check Payment table directly
+        if not has_paid:
+            payment_result = await db.execute(
+                select(Payment).where(
+                    Payment.user_id == user.id,
+                    Payment.module_id == course.module_id,
+                    Payment.status.in_(["approved", "auto_approved"])
+                )
+            )
+            if payment_result.scalar_one_or_none():
+                # Payment exists but UserCourse missing — auto-create it
+                uc = UserCourse(
+                    user_id=user.id,
+                    course_id=course.id,
+                    is_paid=True,
+                    purchased_at=datetime.utcnow()
+                )
+                db.add(uc)
+                await db.commit()
+                has_paid = True
 
     # Get lessons
     lessons_result = await db.execute(
