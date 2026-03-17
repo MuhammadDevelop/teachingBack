@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.chat import ChatMessage
 from app.utils.auth import get_current_user, get_current_admin
 from app.services.chat_ai import get_gemini_reply
+from app.services.telegram_service import send_to_telegram_group
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -24,7 +25,7 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Student sends message to admin, or admin replies to student"""
+    """Student sends message — goes to admin + AI reply + Telegram group"""
     msg = ChatMessage(
         sender_id=user.id,
         receiver_id=data.receiver_id,
@@ -34,9 +35,17 @@ async def send_message(
     db.add(msg)
     await db.commit()
 
-    # AI Auto-reply for students
+    # Student xabari — Telegram guruhga yuborish + AI javob
     if user.role != "admin":
-        # Oxirgi xabarlarni olish (kontekst uchun)
+        # 1. Telegram guruhga yuborish (admin ko'rishi uchun)
+        tg_message = (
+            f"💬 <b>Yangi xabar</b>\n\n"
+            f"👤 {user.full_name} ({user.phone})\n\n"
+            f"📝 {data.message}"
+        )
+        await send_to_telegram_group(tg_message)
+
+        # 2. AI Auto-reply
         history_result = await db.execute(
             select(ChatMessage).where(
                 or_(
@@ -46,17 +55,20 @@ async def send_message(
             ).order_by(ChatMessage.created_at.desc()).limit(10)
         )
         history_msgs = history_result.scalars().all()
-        
-        # Chat history formatlash
+
         chat_history = []
         for h in reversed(list(history_msgs)):
             role = "user" if h.sender_id == user.id else "model"
             chat_history.append({"role": role, "text": h.message})
 
-        # Gemini AI dan javob olish
-        reply_text = await get_gemini_reply(data.message, chat_history)
-        
-        # Agar Gemini ishlamasa, keyword-based fallback
+        # Gemini AI javob
+        reply_text = None
+        try:
+            reply_text = await get_gemini_reply(data.message, chat_history)
+        except Exception as e:
+            print(f"⚠️ Gemini xatolik: {e}")
+
+        # Fallback
         if not reply_text:
             reply_text = get_keyword_reply(data.message)
 
@@ -90,15 +102,15 @@ def get_keyword_reply(text: str) -> str:
         return "📝 Har bir darsda 10 ta test savol bor. Videoni ko'rganingizdan so'ng 2 soat ichida testni yechishingiz kerak."
 
     if any(w in t for w in ["sertifikat", "certificate"]):
-        return "🏆 Kursni muvaffaqiyatli tugatganingizdan so'ng admin sizga sertifikat yuboradi. Profilingizda ko'rishingiz mumkin."
+        return "🏆 Kursni muvaffaqiyatli tugatganingizdan so'ng admin sizga sertifikat yuboradi."
 
     if any(w in t for w in ["yordam", "help", "qanday"]):
-        return "🤖 Men avtomatik yordamchiman. Savolingizga admin tez orada javob beradi. Shu orada quyidagilar foydali bo'lishi mumkin:\n• Darslar - Modullar bo'limida\n• To'lov - To'lov bo'limida\n• Test - Dars ko'rilgandan so'ng"
+        return "🤖 Savolingizga admin tez orada javob beradi.\n• Darslar — Modullar bo'limida\n• To'lov — To'lov bo'limida\n• Test — Dars ko'rilgandan so'ng"
 
     if any(w in t for w in ["rahmat", "raxmat", "thanks"]):
         return "Arzimaydi! 😊 Yana qanday yordam kerak bo'lsa yozing."
 
-    return "🤖 Xabaringiz qabul qilindi! Admin tez orada javob beradi. Agar tezkor yordam kerak bo'lsa, 'yordam' deb yozing."
+    return "🤖 Xabaringiz qabul qilindi! Admin tez orada javob beradi."
 
 
 @router.get("/my")
@@ -156,7 +168,6 @@ async def get_all_conversations(
     admin: User = Depends(get_current_admin)
 ):
     """Admin sees all student conversations"""
-    # Get unique students who sent messages
     result = await db.execute(
         select(ChatMessage.sender_id).where(
             ChatMessage.is_from_admin == False
@@ -164,10 +175,15 @@ async def get_all_conversations(
     )
     student_ids = [row[0] for row in result.all()]
 
+    # Batch load all students
+    students_result = await db.execute(
+        select(User).where(User.id.in_(student_ids))
+    )
+    students_map = {u.id: u for u in students_result.scalars().all()}
+
     conversations = []
     for sid in student_ids:
-        user_result = await db.execute(select(User).where(User.id == sid))
-        student = user_result.scalar_one_or_none()
+        student = students_map.get(sid)
         if not student:
             continue
 
@@ -188,10 +204,18 @@ async def get_all_conversations(
             )
         )
 
+        # Telegram link
+        tg_link = None
+        if student.telegram_username:
+            tg_link = f"https://t.me/{student.telegram_username}"
+        elif student.telegram_id:
+            tg_link = f"tg://user?id={student.telegram_id}"
+
         conversations.append({
             "student_id": sid,
             "student_name": student.full_name,
             "student_phone": student.phone,
+            "telegram_link": tg_link,
             "last_message": last.message[:50] if last else "",
             "last_time": str(last.created_at) if last else "",
             "unread": unread.scalar() or 0,

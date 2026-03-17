@@ -9,10 +9,11 @@ from app.models.exam import Exam, ExamQuestion, ExamSubmission
 from app.models.progress import LessonProgress, TeacherRating
 from app.models.chat import ChatMessage
 from app.models.certificate import Certificate
+from app.models.question import LessonQuestion
 
 __all__ = [
     "Base", "User", "UserCourse", "Module", "Course", "Lesson", "Payment",
     "Test", "TestQuestion", "TestSubmission", "Homework", "HomeworkSubmission",
     "GameExample", "GameSubmission", "Exam", "ExamQuestion", "ExamSubmission",
-    "LessonProgress", "TeacherRating", "ChatMessage",
+    "LessonProgress", "TeacherRating", "ChatMessage", "LessonQuestion",
 ]

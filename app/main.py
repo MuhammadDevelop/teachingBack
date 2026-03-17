@@ -3,6 +3,7 @@ import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from telegram import Update
 from sqlalchemy import text, inspect
@@ -10,6 +11,7 @@ from sqlalchemy import text, inspect
 from app.database import engine, Base, AsyncSessionLocal
 from app.routers import auth, courses, payments, admin
 from app.routers import profile, tests, games, homework, exams, rating, chat, certificates, results
+from app.routers import questions
 from app.config import get_settings
 from app.services.telegram_service import create_webhook_bot, setup_webhook
 
@@ -84,7 +86,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS — barcha originlar uchun ruxsat (production uchun xavfsiz)
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -92,6 +94,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# GZip siqish — API javoblarni tezlashtirish
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # Global exception handler — 500 xatoliklarni to'g'ri qaytarish
@@ -119,6 +124,7 @@ app.include_router(admin.router)
 app.include_router(chat.router)
 app.include_router(certificates.router)
 app.include_router(results.router)
+app.include_router(questions.router)
 
 
 @app.get("/")

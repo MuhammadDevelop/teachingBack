@@ -150,3 +150,29 @@ async def setup_webhook(app, webhook_url: str):
             print(f"✅ Webhook set: {webhook_url}")
         else:
             print(f"❌ Webhook error: {data}")
+
+
+async def send_to_telegram_group(message: str):
+    """Send a message to the Telegram group (mdev_uchun_savollar)"""
+    settings = get_settings()
+    if not settings.telegram_bot_token or not settings.telegram_group_chat_id:
+        print("⚠️ Telegram group chat ID yoki bot token sozlanmagan")
+        return
+
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+            resp = await client.post(url, json={
+                "chat_id": settings.telegram_group_chat_id,
+                "text": message,
+                "parse_mode": "HTML",
+            })
+            data = resp.json()
+            if data.get("ok"):
+                print("✅ Telegram guruhga xabar yuborildi")
+            else:
+                print(f"❌ Telegram guruh xatolik: {data}")
+    except Exception as e:
+        print(f"⚠️ Telegram guruhga yuborishda xatolik: {e}")
+

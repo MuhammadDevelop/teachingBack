@@ -53,20 +53,25 @@ async def list_students(db: AsyncSession = Depends(get_db), admin: User = Depend
     users = result.scalars().all()
     response = []
     for u in users:
-        # Count payments
         payment_result = await db.execute(
             select(func.count()).select_from(Payment).where(
                 Payment.user_id == u.id, Payment.status == "approved"
             )
         )
         paid_modules = payment_result.scalar() or 0
-        # Count completed lessons
         progress_result = await db.execute(
             select(func.count()).where(
                 LessonProgress.user_id == u.id, LessonProgress.is_completed == True
             )
         )
         completed = progress_result.scalar() or 0
+
+        # Telegram link
+        tg_link = None
+        if u.telegram_username:
+            tg_link = f"https://t.me/{u.telegram_username}"
+        elif u.telegram_id:
+            tg_link = f"tg://user?id={u.telegram_id}"
 
         response.append({
             "id": u.id,
@@ -76,6 +81,7 @@ async def list_students(db: AsyncSession = Depends(get_db), admin: User = Depend
             "created_at": str(u.created_at),
             "paid_modules": paid_modules,
             "completed_lessons": completed,
+            "telegram_link": tg_link,
         })
     return response
 
@@ -111,6 +117,13 @@ async def get_student_detail(user_id: int, db: AsyncSession = Depends(get_db), a
     )
     progress = prog_result.scalars().all()
 
+    # Telegram link
+    tg_link = None
+    if user.telegram_username:
+        tg_link = f"https://t.me/{user.telegram_username}"
+    elif user.telegram_id:
+        tg_link = f"tg://user?id={user.telegram_id}"
+
     return {
         "id": user.id,
         "full_name": user.full_name,
@@ -118,6 +131,7 @@ async def get_student_detail(user_id: int, db: AsyncSession = Depends(get_db), a
         "is_active": user.is_active,
         "avatar": user.avatar,
         "bio": user.bio,
+        "telegram_link": tg_link,
         "created_at": str(user.created_at),
         "payments": [{"id": p.id, "module_id": p.module_id, "amount": p.amount, "status": p.status, "created_at": str(p.created_at)} for p in payments],
         "test_submissions": [{"id": s.id, "test_id": s.test_id, "score": s.score, "total": s.total, "passed": s.passed} for s in test_subs],
@@ -269,6 +283,17 @@ async def delete_lesson(lesson_id: int, db: AsyncSession = Depends(get_db), admi
 # ==================== TESTS ====================
 @router.post("/tests")
 async def create_test(data: TestCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    # Darsni tekshirish
+    lesson_result = await db.execute(select(Lesson).where(Lesson.id == data.lesson_id))
+    lesson = lesson_result.scalar_one_or_none()
+    if not lesson:
+        raise HTTPException(status_code=404, detail=f"Dars topilmadi (lesson_id={data.lesson_id})")
+
+    # Takroriy test tekshirish
+    existing = await db.execute(select(Test).where(Test.lesson_id == data.lesson_id))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"'{lesson.title}' darsida allaqachon test mavjud")
+
     test = Test(lesson_id=data.lesson_id, title=data.title, time_limit=data.time_limit, passing_score=data.passing_score)
     db.add(test)
     await db.flush()
@@ -308,6 +333,17 @@ async def delete_test(test_id: int, db: AsyncSession = Depends(get_db), admin: U
 # ==================== HOMEWORK ====================
 @router.post("/homework")
 async def create_homework(data: HomeworkCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    # Darsni tekshirish
+    lesson_result = await db.execute(select(Lesson).where(Lesson.id == data.lesson_id))
+    lesson = lesson_result.scalar_one_or_none()
+    if not lesson:
+        raise HTTPException(status_code=404, detail=f"Dars topilmadi (lesson_id={data.lesson_id})")
+
+    # Takroriy vazifa tekshirish
+    existing = await db.execute(select(Homework).where(Homework.lesson_id == data.lesson_id))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"'{lesson.title}' darsida allaqachon vazifa mavjud")
+
     hw = Homework(**data.model_dump())
     db.add(hw)
     await db.commit()
@@ -364,6 +400,17 @@ async def grade_homework(sub_id: int, data: HomeworkGradeRequest, db: AsyncSessi
 # ==================== GAMES ====================
 @router.post("/games")
 async def create_game(data: GameCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    # Darsni tekshirish
+    lesson_result = await db.execute(select(Lesson).where(Lesson.id == data.lesson_id))
+    lesson = lesson_result.scalar_one_or_none()
+    if not lesson:
+        raise HTTPException(status_code=404, detail=f"Dars topilmadi (lesson_id={data.lesson_id})")
+
+    # Takroriy o'yin tekshirish
+    existing = await db.execute(select(GameExample).where(GameExample.lesson_id == data.lesson_id))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"'{lesson.title}' darsida allaqachon o'yin mavjud")
+
     game = GameExample(**data.model_dump())
     db.add(game)
     await db.commit()
@@ -414,13 +461,21 @@ async def list_payments(status: str = None, db: AsyncSession = Depends(get_db), 
         q = q.where(Payment.status == status)
     result = await db.execute(q)
     payments = result.scalars().all()
+
+    # Batch load users and modules
+    user_ids = list(set(p.user_id for p in payments))
+    module_ids = list(set(p.module_id for p in payments))
+
+    users_result = await db.execute(select(User).where(User.id.in_(user_ids))) if user_ids else None
+    users_map = {u.id: u for u in users_result.scalars().all()} if users_result else {}
+
+    modules_result = await db.execute(select(Module).where(Module.id.in_(module_ids))) if module_ids else None
+    modules_map = {m.id: m for m in modules_result.scalars().all()} if modules_result else {}
+
     response = []
     for p in payments:
-        user_result = await db.execute(select(User).where(User.id == p.user_id))
-        user = user_result.scalar_one_or_none()
-        module_result = await db.execute(select(Module).where(Module.id == p.module_id))
-        module = module_result.scalar_one_or_none()
-        # Telegram link yaratish
+        user = users_map.get(p.user_id)
+        module = modules_map.get(p.module_id)
         tg_link = None
         if user:
             if user.telegram_username:

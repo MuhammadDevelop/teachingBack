@@ -6,11 +6,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/online_teach"
     secret_key: str = "your-secret-key-change-in-production"
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24 * 7  # 1 week
+    access_token_expire_minutes: int = 60 * 24 * 30  # 30 days
 
     # Telegram
     telegram_bot_token: str = ""
     telegram_webhook_url: str = ""  # e.g. https://your-app.onrender.com/webhook/telegram
+    telegram_group_chat_id: str = ""  # mdev_uchun_savollar group chat ID
 
     # Frontend
     frontend_url: str = "http://localhost:5173"

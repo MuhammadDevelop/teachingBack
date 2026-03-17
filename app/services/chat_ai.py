@@ -47,53 +47,48 @@ QOIDALAR:
 async def get_gemini_reply(user_message: str, chat_history: list[dict] = None) -> str | None:
     """
     Google Gemini API bilan savollarga javob berish.
-    
-    Args:
-        user_message: Foydalanuvchi xabari
-        chat_history: Oxirgi xabarlar ro'yxati [{role, text}]
-    
-    Returns:
-        AI javobi yoki None (agar xatolik bo'lsa)
+    Fallback: gemini-2.0-flash → gemini-1.5-flash
     """
     settings = get_settings()
     if not settings.gemini_api_key:
         return None
 
-    try:
-        import google.generativeai as genai
+    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
 
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            system_instruction=SYSTEM_PROMPT
-        )
+    for model_name in models_to_try:
+        try:
+            import google.generativeai as genai
 
-        # Chat kontekstini tayyorlash
-        contents = []
-        
-        if chat_history:
-            for msg in chat_history[-5:]:  # Oxirgi 5 ta xabar
-                role = "user" if msg.get("role") == "user" else "model"
-                contents.append({
-                    "role": role,
-                    "parts": [{"text": msg["text"]}]
-                })
+            genai.configure(api_key=settings.gemini_api_key)
+            model = genai.GenerativeModel(
+                model_name,
+                system_instruction=SYSTEM_PROMPT
+            )
 
-        # Joriy xabar
-        contents.append({
-            "role": "user",
-            "parts": [{"text": user_message}]
-        })
+            contents = []
+            if chat_history:
+                for msg in chat_history[-5:]:
+                    role = "user" if msg.get("role") == "user" else "model"
+                    contents.append({
+                        "role": role,
+                        "parts": [{"text": msg["text"]}]
+                    })
 
-        response = model.generate_content(contents)
-        reply = response.text.strip()
-        
-        # Juda uzun javobni qisqartirish
-        if len(reply) > 500:
-            reply = reply[:497] + "..."
-        
-        return reply
+            contents.append({
+                "role": "user",
+                "parts": [{"text": user_message}]
+            })
 
-    except Exception as e:
-        print(f"Gemini AI xatolik: {e}")
-        return None
+            response = model.generate_content(contents)
+            reply = response.text.strip()
+
+            if len(reply) > 500:
+                reply = reply[:497] + "..."
+
+            return reply
+
+        except Exception as e:
+            print(f"Gemini AI ({model_name}) xatolik: {e}")
+            continue
+
+    return None
