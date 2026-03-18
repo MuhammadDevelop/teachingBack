@@ -48,20 +48,20 @@ async def get_modules(
         select(Module).where(Module.is_active == True).order_by(Module.order)
     )
     modules = result.scalars().all()
+
+    # Batch load payment statuses
+    paid_module_ids = set()
+    if user:
+        payment_result = await db.execute(
+            select(Payment.module_id).where(
+                Payment.user_id == user.id,
+                Payment.status.in_(["approved", "auto_approved"])
+            )
+        )
+        paid_module_ids = {row[0] for row in payment_result.all()}
+
     response = []
     for m in modules:
-        # Check if user has paid for this module
-        is_paid = False
-        if user:
-            payment_result = await db.execute(
-                select(Payment).where(
-                    Payment.user_id == user.id,
-                    Payment.module_id == m.id,
-                    Payment.status.in_(["approved", "auto_approved"])
-                )
-            )
-            is_paid = payment_result.scalar_one_or_none() is not None
-
         courses_result = await db.execute(
             select(Course).where(Course.module_id == m.id, Course.is_active == True).order_by(Course.order)
         )
@@ -70,7 +70,7 @@ async def get_modules(
             "id": m.id, "name": m.name, "slug": m.slug,
             "description": m.description, "price": m.price,
             "order": m.order, "is_active": m.is_active,
-            "is_paid": is_paid,
+            "is_paid": m.id in paid_module_ids,
             "courses": [{
                 "id": c.id, "module_id": c.module_id, "name": c.name,
                 "slug": c.slug, "description": c.description,
@@ -144,24 +144,55 @@ async def get_course(
     )
     lessons = lessons_result.scalars().all()
 
+    # Batch load all progress for this user's lessons
+    progress_map = {}
+    if user:
+        lesson_ids = [l.id for l in lessons]
+        if lesson_ids:
+            prog_result = await db.execute(
+                select(LessonProgress).where(
+                    LessonProgress.user_id == user.id,
+                    LessonProgress.lesson_id.in_(lesson_ids)
+                )
+            )
+            for prog in prog_result.scalars().all():
+                progress_map[prog.lesson_id] = prog
+
+    # Batch load exams for this course
+    exam_map = {}
+    if user and has_paid:
+        exam_result = await db.execute(
+            select(Exam).where(Exam.course_id == course.id)
+        )
+        for exam in exam_result.scalars().all():
+            exam_map[exam.after_lesson_order] = exam
+
+    # Batch load exam submissions
+    exam_passed_ids = set()
+    if user and exam_map:
+        from app.models.exam import ExamSubmission
+        exam_ids = [e.id for e in exam_map.values()]
+        sub_result = await db.execute(
+            select(ExamSubmission.exam_id).where(
+                ExamSubmission.user_id == user.id,
+                ExamSubmission.exam_id.in_(exam_ids),
+                ExamSubmission.passed == True
+            )
+        )
+        exam_passed_ids = {row[0] for row in sub_result.all()}
+
     lessons_with_access = []
     prev_completed = True  # First lesson always accessible
 
     for lesson in lessons:
         has_access = lesson.is_free or (has_paid and prev_completed)
 
-        # Check progress
+        # Check progress from batch-loaded map
         progress_data = None
         has_requirements = lesson.test is not None or lesson.homework is not None or lesson.game is not None
 
+        prog = progress_map.get(lesson.id)
         if user:
-            prog_result = await db.execute(
-                select(LessonProgress).where(
-                    LessonProgress.user_id == user.id,
-                    LessonProgress.lesson_id == lesson.id
-                )
-            )
-            prog = prog_result.scalar_one_or_none()
             if prog:
                 progress_data = {
                     "video_watched": prog.video_watched,
@@ -174,14 +205,11 @@ async def get_course(
                 if has_requirements:
                     prev_completed = prog.is_completed
                 else:
-                    # Lesson has no test/game/homework — video watched is enough
                     prev_completed = prog.video_watched
             else:
                 if lesson.is_free and not has_requirements:
-                    # Free lesson with no requirements — don't block next lesson
                     prev_completed = True
                 elif has_paid and not has_requirements:
-                    # Paid but no requirements — don't block next lesson
                     prev_completed = True
                 else:
                     prev_completed = False
@@ -190,24 +218,9 @@ async def get_course(
 
         # Check if exam is needed before this lesson
         if lesson.order > 1 and lesson.order % 12 == 1 and user and has_paid:
-            exam_result = await db.execute(
-                select(Exam).where(
-                    Exam.course_id == course.id,
-                    Exam.after_lesson_order == lesson.order - 1
-                )
-            )
-            exam = exam_result.scalar_one_or_none()
-            if exam:
-                from app.models.exam import ExamSubmission
-                sub_result = await db.execute(
-                    select(ExamSubmission).where(
-                        ExamSubmission.user_id == user.id,
-                        ExamSubmission.exam_id == exam.id,
-                        ExamSubmission.passed == True
-                    )
-                )
-                if not sub_result.scalar_one_or_none():
-                    has_access = False  # Exam not passed
+            exam = exam_map.get(lesson.order - 1)
+            if exam and exam.id not in exam_passed_ids:
+                has_access = False
 
         lessons_with_access.append(LessonDetailResponse(
             id=lesson.id,

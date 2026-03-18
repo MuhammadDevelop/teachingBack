@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,25 @@ from app.schemas.test import TestCreate, HomeworkCreate, GameCreate, ExamCreate,
 from app.schemas.payment import PaymentReview
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def normalize_video_url(url: str | None) -> str | None:
+    """YouTube URL ni embed formatga o'zgartirish"""
+    if not url:
+        return url
+    url = url.strip()
+    # youtu.be/VIDEO_ID
+    match = re.match(r'https?://youtu\.be/([a-zA-Z0-9_-]+)', url)
+    if match:
+        return f"https://www.youtube.com/embed/{match.group(1)}"
+    # youtube.com/watch?v=VIDEO_ID
+    match = re.match(r'https?://(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]+)', url)
+    if match:
+        return f"https://www.youtube.com/embed/{match.group(1)}"
+    # youtube.com/embed/VIDEO_ID — allaqachon to'g'ri
+    if re.match(r'https?://(?:www\.)?youtube\.com/embed/', url):
+        return url
+    return url
 
 
 # ==================== DASHBOARD ====================
@@ -51,22 +71,29 @@ async def admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = Depe
 async def list_students(db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
     result = await db.execute(select(User).where(User.role == "student").order_by(User.created_at.desc()))
     users = result.scalars().all()
+    if not users:
+        return []
+
+    user_ids = [u.id for u in users]
+
+    # Batch: paid modules count per user
+    payments_q = await db.execute(
+        select(Payment.user_id, func.count()).where(
+            Payment.user_id.in_(user_ids), Payment.status == "approved"
+        ).group_by(Payment.user_id)
+    )
+    paid_map = dict(payments_q.all())
+
+    # Batch: completed lessons count per user
+    progress_q = await db.execute(
+        select(LessonProgress.user_id, func.count()).where(
+            LessonProgress.user_id.in_(user_ids), LessonProgress.is_completed == True
+        ).group_by(LessonProgress.user_id)
+    )
+    completed_map = dict(progress_q.all())
+
     response = []
     for u in users:
-        payment_result = await db.execute(
-            select(func.count()).select_from(Payment).where(
-                Payment.user_id == u.id, Payment.status == "approved"
-            )
-        )
-        paid_modules = payment_result.scalar() or 0
-        progress_result = await db.execute(
-            select(func.count()).where(
-                LessonProgress.user_id == u.id, LessonProgress.is_completed == True
-            )
-        )
-        completed = progress_result.scalar() or 0
-
-        # Telegram link
         tg_link = None
         if u.telegram_username:
             tg_link = f"https://t.me/{u.telegram_username}"
@@ -79,8 +106,8 @@ async def list_students(db: AsyncSession = Depends(get_db), admin: User = Depend
             "phone": u.phone,
             "is_active": u.is_active,
             "created_at": str(u.created_at),
-            "paid_modules": paid_modules,
-            "completed_lessons": completed,
+            "paid_modules": paid_map.get(u.id, 0),
+            "completed_lessons": completed_map.get(u.id, 0),
             "telegram_link": tg_link,
         })
     return response
@@ -196,10 +223,37 @@ async def update_module(module_id: int, data: ModuleUpdate, db: AsyncSession = D
 
 @router.delete("/modules/{module_id}")
 async def delete_module(module_id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
-    result = await db.execute(select(Module).where(Module.id == module_id))
+    result = await db.execute(select(Module).where(Module.id == module_id).options(selectinload(Module.courses)))
     m = result.scalar_one_or_none()
     if not m:
         raise HTTPException(status_code=404, detail="Modul topilmadi")
+
+    # Bog'liq submission yozuvlarni tozalash
+    course_ids = [c.id for c in m.courses]
+    if course_ids:
+        lesson_result = await db.execute(select(Lesson).where(Lesson.course_id.in_(course_ids)))
+        lesson_ids = [l.id for l in lesson_result.scalars().all()]
+        if lesson_ids:
+            # Test submissions
+            test_result = await db.execute(select(Test).where(Test.lesson_id.in_(lesson_ids)))
+            test_ids = [t.id for t in test_result.scalars().all()]
+            if test_ids:
+                await db.execute(delete(TestSubmission).where(TestSubmission.test_id.in_(test_ids)))
+            # Homework submissions
+            hw_result = await db.execute(select(Homework).where(Homework.lesson_id.in_(lesson_ids)))
+            hw_ids = [h.id for h in hw_result.scalars().all()]
+            if hw_ids:
+                await db.execute(delete(HomeworkSubmission).where(HomeworkSubmission.homework_id.in_(hw_ids)))
+            # Game submissions
+            game_result = await db.execute(select(GameExample).where(GameExample.lesson_id.in_(lesson_ids)))
+            game_ids = [g.id for g in game_result.scalars().all()]
+            if game_ids:
+                await db.execute(delete(GameSubmission).where(GameSubmission.game_id.in_(game_ids)))
+        # Payments for this module
+        await db.execute(delete(Payment).where(Payment.module_id == module_id))
+        # UserCourse entries
+        await db.execute(delete(UserCourse).where(UserCourse.course_id.in_(course_ids)))
+
     await db.delete(m)
     await db.commit()
     return {"success": True}
@@ -232,6 +286,31 @@ async def delete_course(course_id: int, db: AsyncSession = Depends(get_db), admi
     course = result.scalar_one_or_none()
     if not course:
         raise HTTPException(status_code=404, detail="Kurs topilmadi")
+
+    # Bog'liq submission yozuvlarni tozalash
+    lesson_result = await db.execute(select(Lesson).where(Lesson.course_id == course_id))
+    lesson_ids = [l.id for l in lesson_result.scalars().all()]
+    if lesson_ids:
+        test_result = await db.execute(select(Test).where(Test.lesson_id.in_(lesson_ids)))
+        test_ids = [t.id for t in test_result.scalars().all()]
+        if test_ids:
+            await db.execute(delete(TestSubmission).where(TestSubmission.test_id.in_(test_ids)))
+        hw_result = await db.execute(select(Homework).where(Homework.lesson_id.in_(lesson_ids)))
+        hw_ids = [h.id for h in hw_result.scalars().all()]
+        if hw_ids:
+            await db.execute(delete(HomeworkSubmission).where(HomeworkSubmission.homework_id.in_(hw_ids)))
+        game_result = await db.execute(select(GameExample).where(GameExample.lesson_id.in_(lesson_ids)))
+        game_ids = [g.id for g in game_result.scalars().all()]
+        if game_ids:
+            await db.execute(delete(GameSubmission).where(GameSubmission.game_id.in_(game_ids)))
+    # UserCourse
+    await db.execute(delete(UserCourse).where(UserCourse.course_id == course_id))
+    # Exam submissions
+    exam_result = await db.execute(select(Exam).where(Exam.course_id == course_id))
+    exam_ids = [e.id for e in exam_result.scalars().all()]
+    if exam_ids:
+        await db.execute(delete(ExamSubmission).where(ExamSubmission.exam_id.in_(exam_ids)))
+
     await db.delete(course)
     await db.commit()
     return {"success": True}
@@ -251,7 +330,9 @@ async def list_lessons(course_id: int = None, db: AsyncSession = Depends(get_db)
 
 @router.post("/lessons")
 async def create_lesson(data: LessonCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
-    lesson = Lesson(**data.model_dump())
+    lesson_data = data.model_dump()
+    lesson_data["video_url"] = normalize_video_url(lesson_data.get("video_url"))
+    lesson = Lesson(**lesson_data)
     db.add(lesson)
     await db.commit()
     return {"id": lesson.id}
@@ -263,7 +344,10 @@ async def update_lesson(lesson_id: int, data: LessonUpdate, db: AsyncSession = D
     lesson = result.scalar_one_or_none()
     if not lesson:
         raise HTTPException(status_code=404, detail="Dars topilmadi")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+    if "video_url" in update_data:
+        update_data["video_url"] = normalize_video_url(update_data["video_url"])
+    for k, v in update_data.items():
         setattr(lesson, k, v)
     await db.commit()
     return {"success": True}
@@ -275,6 +359,23 @@ async def delete_lesson(lesson_id: int, db: AsyncSession = Depends(get_db), admi
     lesson = result.scalar_one_or_none()
     if not lesson:
         raise HTTPException(status_code=404, detail="Dars topilmadi")
+
+    # Bog'liq submission yozuvlarni tozalash
+    test_result = await db.execute(select(Test).where(Test.lesson_id == lesson_id))
+    test = test_result.scalar_one_or_none()
+    if test:
+        await db.execute(delete(TestSubmission).where(TestSubmission.test_id == test.id))
+    hw_result = await db.execute(select(Homework).where(Homework.lesson_id == lesson_id))
+    hw = hw_result.scalar_one_or_none()
+    if hw:
+        await db.execute(delete(HomeworkSubmission).where(HomeworkSubmission.homework_id == hw.id))
+    game_result = await db.execute(select(GameExample).where(GameExample.lesson_id == lesson_id))
+    game = game_result.scalar_one_or_none()
+    if game:
+        await db.execute(delete(GameSubmission).where(GameSubmission.game_id == game.id))
+    # UserCourse references
+    await db.execute(delete(UserCourse).where(UserCourse.last_lesson_id == lesson_id))
+
     await db.delete(lesson)
     await db.commit()
     return {"success": True}
@@ -363,22 +464,19 @@ async def delete_homework(hw_id: int, db: AsyncSession = Depends(get_db), admin:
 
 @router.get("/homework/submissions")
 async def get_all_homework_submissions(db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
-    result = await db.execute(select(HomeworkSubmission).order_by(HomeworkSubmission.submitted_at.desc()))
+    result = await db.execute(
+        select(HomeworkSubmission)
+        .options(selectinload(HomeworkSubmission.user), selectinload(HomeworkSubmission.homework))
+        .order_by(HomeworkSubmission.submitted_at.desc())
+    )
     subs = result.scalars().all()
-    response = []
-    for s in subs:
-        user_result = await db.execute(select(User).where(User.id == s.user_id))
-        user = user_result.scalar_one_or_none()
-        hw_result = await db.execute(select(Homework).where(Homework.id == s.homework_id))
-        hw = hw_result.scalar_one_or_none()
-        response.append({
-            "id": s.id, "user_id": s.user_id, "user_name": user.full_name if user else "",
-            "homework_id": s.homework_id, "homework_title": hw.title if hw else "",
-            "answer_text": s.answer_text, "file_url": s.file_url,
-            "score": s.score, "is_graded": s.is_graded, "admin_comment": s.admin_comment,
-            "submitted_at": str(s.submitted_at),
-        })
-    return response
+    return [{
+        "id": s.id, "user_id": s.user_id, "user_name": s.user.full_name if s.user else "",
+        "homework_id": s.homework_id, "homework_title": s.homework.title if s.homework else "",
+        "answer_text": s.answer_text, "file_url": s.file_url,
+        "score": s.score, "is_graded": s.is_graded, "admin_comment": s.admin_comment,
+        "submitted_at": str(s.submitted_at),
+    } for s in subs]
 
 
 @router.patch("/homework/submissions/{sub_id}/grade")
@@ -638,27 +736,18 @@ async def get_courses_for_select(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin)
 ):
-    """Admin formasi uchun kurslar ro'yxati (select dropdown)
-    
-    module_id berilsa, faqat shu moduldagi kurslar qaytariladi.
-    """
-    q = select(Course).where(Course.is_active == True).order_by(Course.order)
+    """Admin formasi uchun kurslar ro'yxati (select dropdown)"""
+    q = select(Course).options(selectinload(Course.module)).where(Course.is_active == True).order_by(Course.order)
     if module_id:
         q = q.where(Course.module_id == module_id)
     result = await db.execute(q)
     courses = result.scalars().all()
-    
-    response = []
-    for c in courses:
-        module_result = await db.execute(select(Module).where(Module.id == c.module_id))
-        module = module_result.scalar_one_or_none()
-        response.append({
-            "id": c.id,
-            "name": c.name,
-            "module_id": c.module_id,
-            "module_name": module.name if module else "",
-        })
-    return response
+    return [{
+        "id": c.id,
+        "name": c.name,
+        "module_id": c.module_id,
+        "module_name": c.module.name if c.module else "",
+    } for c in courses]
 
 
 @router.get("/select/lessons")
@@ -667,32 +756,22 @@ async def get_lessons_for_select(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin)
 ):
-    """Admin formasi uchun darslar ro'yxati (select dropdown)
-    
-    course_id berilsa, faqat shu kursdagi darslar qaytariladi.
-    Test/Vazifa/O'yin yaratishda lesson_id tanlash uchun ishlatiladi.
-    """
-    q = select(Lesson).order_by(Lesson.order)
+    """Admin formasi uchun darslar ro'yxati (select dropdown)"""
+    q = select(Lesson).options(selectinload(Lesson.course)).order_by(Lesson.order)
     if course_id:
         q = q.where(Lesson.course_id == course_id)
     result = await db.execute(q)
     lessons = result.scalars().all()
-    
-    response = []
-    for l in lessons:
-        course_result = await db.execute(select(Course).where(Course.id == l.course_id))
-        course = course_result.scalar_one_or_none()
-        response.append({
-            "id": l.id,
-            "title": l.title,
-            "order": l.order,
-            "course_id": l.course_id,
-            "course_name": course.name if course else "",
-            "has_test": l.test is not None,
-            "has_homework": l.homework is not None,
-            "has_game": l.game is not None,
-        })
-    return response
+    return [{
+        "id": l.id,
+        "title": l.title,
+        "order": l.order,
+        "course_id": l.course_id,
+        "course_name": l.course.name if l.course else "",
+        "has_test": l.test is not None,
+        "has_homework": l.homework is not None,
+        "has_game": l.game is not None,
+    } for l in lessons]
 
 
 @router.get("/select/students")

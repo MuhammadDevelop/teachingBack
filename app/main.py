@@ -99,6 +99,19 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
+# Caching middleware — GET so'rovlar uchun qisqa muddatli kesh
+@app.middleware("http")
+async def add_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.method == "GET" and response.status_code == 200:
+        # Admin endpoint emas bo'lsa, qisqa kesh
+        if "/admin/" not in str(request.url.path):
+            response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=60"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 # Global exception handler — 500 xatoliklarni to'g'ri qaytarish
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

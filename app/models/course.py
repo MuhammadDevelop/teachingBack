@@ -17,7 +17,7 @@ class Module(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    courses: Mapped[list["Course"]] = relationship("Course", back_populates="module", lazy="selectin")
+    courses: Mapped[list["Course"]] = relationship("Course", back_populates="module", lazy="selectin", cascade="all, delete-orphan")
 
 
 class Course(Base):
@@ -35,8 +35,8 @@ class Course(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     module: Mapped["Module"] = relationship("Module", back_populates="courses")
-    lessons: Mapped[list["Lesson"]] = relationship("Lesson", back_populates="course", order_by="Lesson.order", lazy="selectin")
-    users: Mapped[list["UserCourse"]] = relationship("UserCourse", back_populates="course")
+    lessons: Mapped[list["Lesson"]] = relationship("Lesson", back_populates="course", order_by="Lesson.order", lazy="selectin", cascade="all, delete-orphan")
+    users: Mapped[list["UserCourse"]] = relationship("UserCourse", back_populates="course", cascade="all, delete-orphan")
 
 
 class Lesson(Base):
@@ -55,7 +55,7 @@ class Lesson(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     course: Mapped["Course"] = relationship("Course", back_populates="lessons")
-    test: Mapped["Test | None"] = relationship("Test", back_populates="lesson", uselist=False, lazy="selectin")
-    homework: Mapped["Homework | None"] = relationship("Homework", back_populates="lesson", uselist=False, lazy="selectin")
-    game: Mapped["GameExample | None"] = relationship("GameExample", back_populates="lesson", uselist=False, lazy="selectin")
-    progress: Mapped[list["LessonProgress"]] = relationship("LessonProgress", back_populates="lesson", lazy="selectin")
+    test: Mapped["Test | None"] = relationship("Test", back_populates="lesson", uselist=False, lazy="selectin", cascade="all, delete-orphan")
+    homework: Mapped["Homework | None"] = relationship("Homework", back_populates="lesson", uselist=False, lazy="selectin", cascade="all, delete-orphan")
+    game: Mapped["GameExample | None"] = relationship("GameExample", back_populates="lesson", uselist=False, lazy="selectin", cascade="all, delete-orphan")
+    progress: Mapped[list["LessonProgress"]] = relationship("LessonProgress", back_populates="lesson", lazy="selectin", cascade="all, delete-orphan")
