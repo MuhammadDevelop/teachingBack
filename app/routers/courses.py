@@ -201,7 +201,7 @@ async def get_course(
 
         # Check progress from batch-loaded map
         progress_data = None
-        has_requirements = lesson.test is not None or lesson.homework is not None or lesson.game is not None
+        has_requirements = lesson.test is not None or lesson.homework is not None
 
         prog = progress_map.get(lesson.id)
         if user:
@@ -210,7 +210,6 @@ async def get_course(
                     "video_watched": prog.video_watched,
                     "video_watched_at": str(prog.video_watched_at) if prog.video_watched_at else None,
                     "test_passed": prog.test_passed,
-                    "game_completed": prog.game_completed,
                     "homework_submitted": prog.homework_submitted,
                     "is_completed": prog.is_completed,
                 }
@@ -246,7 +245,7 @@ async def get_course(
             is_free=lesson.is_free,
             has_test=lesson.test is not None,
             has_homework=lesson.homework is not None,
-            has_game=lesson.game is not None,
+            has_game=False,
             has_access=has_access,
             progress=progress_data,
         ))

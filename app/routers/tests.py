@@ -68,20 +68,27 @@ async def start_test(
     if not progress or not progress.video_watched:
         raise HTTPException(status_code=400, detail="Avval videoni ko'ring")
 
-    # Check 2h deadline
-    deadline = progress.video_watched_at + timedelta(hours=2)
-    if datetime.utcnow() > deadline:
-        raise HTTPException(status_code=400, detail="Test vaqti tugagan (2 soat ichida yechish kerak edi)")
-
-    # Check if already submitted
+    # If already passed, don't allow re-take
     existing = await db.execute(
+        select(TestSubmission).where(
+            TestSubmission.user_id == user.id,
+            TestSubmission.test_id == test_id,
+            TestSubmission.passed == True
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Test allaqachon muvaffaqiyatli yechildi")
+
+    # Delete previous failed attempts
+    old_result = await db.execute(
         select(TestSubmission).where(
             TestSubmission.user_id == user.id,
             TestSubmission.test_id == test_id
         )
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Test allaqachon yechildi")
+    for old_sub in old_result.scalars().all():
+        await db.delete(old_sub)
+    await db.flush()
 
     # Create submission (started)
     submission = TestSubmission(
@@ -128,12 +135,13 @@ async def submit_test(
     if elapsed > test.time_limit + 10:  # 10 sec grace
         raise HTTPException(status_code=400, detail="Test vaqti tugagan")
 
-    # Grade
+    # Grade — strip and lowercase both sides for accurate comparison
     score = 0
     total = len(test.questions)
     for q in test.questions:
-        user_answer = data.answers.get(str(q.id), "").lower()
-        if user_answer == q.correct_option.lower():
+        user_answer = data.answers.get(str(q.id), "").strip().lower()
+        correct = q.correct_option.strip().lower()
+        if user_answer == correct:
             score += 1
 
     passed = score >= test.passing_score
@@ -156,8 +164,8 @@ async def submit_test(
         if progress:
             progress.test_passed = True
             progress.test_completed_at = datetime.utcnow()
-            # Check if all done
-            if progress.test_passed and progress.game_completed and progress.homework_submitted:
+            # Lesson completed = test passed + homework submitted (graded)
+            if progress.test_passed and progress.homework_submitted:
                 progress.is_completed = True
                 progress.completed_at = datetime.utcnow()
             await db.commit()

@@ -52,11 +52,6 @@ async def submit_homework(
     if not progress or not progress.video_watched:
         raise HTTPException(status_code=400, detail="Avval videoni ko'ring")
 
-    # Check 24h deadline
-    deadline = progress.video_watched_at + timedelta(hours=hw.deadline_hours)
-    if datetime.utcnow() > deadline:
-        raise HTTPException(status_code=400, detail="Vazifa vaqti tugagan (24 soat ichida topshirish kerak edi)")
-
     # Check existing
     existing = await db.execute(
         select(HomeworkSubmission).where(
@@ -76,15 +71,13 @@ async def submit_homework(
     )
     db.add(submission)
 
-    # Update progress
+    # Mark homework submitted (pending admin review)
     progress.homework_submitted = True
     progress.homework_submitted_at = datetime.utcnow()
-    if progress.test_passed and progress.game_completed and progress.homework_submitted:
-        progress.is_completed = True
-        progress.completed_at = datetime.utcnow()
+    # Note: is_completed only set when admin grades/approves
 
     await db.commit()
-    return {"message": "Vazifa muvaffaqiyatli topshirildi", "submission_id": submission.id}
+    return {"message": "Vazifa muvaffaqiyatli topshirildi! Admin tekshirishini kuting.", "submission_id": submission.id}
 
 
 @router.get("/{hw_id}/status")

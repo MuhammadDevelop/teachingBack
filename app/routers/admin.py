@@ -491,6 +491,22 @@ async def grade_homework(sub_id: int, data: HomeworkGradeRequest, db: AsyncSessi
     sub.admin_comment = data.admin_comment
     sub.is_graded = True
     sub.graded_at = datetime.utcnow()
+
+    # Mark lesson completed if test passed + homework graded
+    hw_result = await db.execute(select(Homework).where(Homework.id == sub.homework_id))
+    hw = hw_result.scalar_one_or_none()
+    if hw:
+        prog_result = await db.execute(
+            select(LessonProgress).where(
+                LessonProgress.user_id == sub.user_id,
+                LessonProgress.lesson_id == hw.lesson_id
+            )
+        )
+        progress = prog_result.scalar_one_or_none()
+        if progress and progress.test_passed and not progress.is_completed:
+            progress.is_completed = True
+            progress.completed_at = datetime.utcnow()
+
     await db.commit()
     return {"success": True}
 
