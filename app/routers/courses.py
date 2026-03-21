@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,17 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 security = HTTPBearer(auto_error=False)
 router = APIRouter(prefix="/courses", tags=["courses"])
+
+
+def _normalize_video_url(url):
+    """YouTube URL ni embed formatga o'zgartirish"""
+    if not url: return url
+    url = url.strip()
+    match = re.match(r'https?://youtu\.be/([a-zA-Z0-9_-]+)', url)
+    if match: return f"https://www.youtube.com/embed/{match.group(1)}"
+    match = re.match(r'https?://(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]+)', url)
+    if match: return f"https://www.youtube.com/embed/{match.group(1)}"
+    return url
 
 
 async def get_optional_user(
@@ -228,7 +240,7 @@ async def get_course(
             title=lesson.title,
             slug=lesson.slug,
             description=lesson.description,
-            video_url=lesson.video_url if has_access else None,
+            video_url=_normalize_video_url(lesson.video_url) if has_access else None,
             video_duration=lesson.video_duration,
             order=lesson.order,
             is_free=lesson.is_free,
@@ -321,7 +333,7 @@ async def get_lesson_progress(
     base = {
         "title": lesson.title,
         "description": lesson.description,
-        "video_url": lesson.video_url,
+        "video_url": _normalize_video_url(lesson.video_url),
         "is_free": lesson.is_free,
         "order": lesson.order,
     }
