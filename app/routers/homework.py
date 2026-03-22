@@ -35,7 +35,10 @@ async def submit_homework(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Submit homework — must be within 24h of watching video"""
+    """Submit homework — no limit for submissions.
+    If already submitted, update the existing submission.
+    Status becomes 'pending' (not graded) until admin approves.
+    """
     hw_result = await db.execute(select(Homework).where(Homework.id == hw_id))
     hw = hw_result.scalar_one_or_none()
     if not hw:
@@ -52,32 +55,49 @@ async def submit_homework(
     if not progress or not progress.video_watched:
         raise HTTPException(status_code=400, detail="Avval videoni ko'ring")
 
-    # Check existing
-    existing = await db.execute(
+    # Check existing submission — allow resubmission (unlimited)
+    existing_result = await db.execute(
         select(HomeworkSubmission).where(
             HomeworkSubmission.user_id == user.id,
             HomeworkSubmission.homework_id == hw_id
         )
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Vazifa allaqachon topshirilgan")
-
-    submission = HomeworkSubmission(
-        user_id=user.id,
-        homework_id=hw_id,
-        answer_text=data.answer_text,
-        file_url=data.file_url,
-        submitted_at=datetime.utcnow()
-    )
-    db.add(submission)
+    existing = existing_result.scalar_one_or_none()
+    
+    if existing:
+        # Update existing submission — reset grading
+        existing.answer_text = data.answer_text
+        existing.file_url = data.file_url
+        existing.is_graded = False
+        existing.score = None
+        existing.admin_comment = None
+        existing.graded_at = None
+        existing.submitted_at = datetime.utcnow()
+        submission = existing
+    else:
+        # New submission
+        submission = HomeworkSubmission(
+            user_id=user.id,
+            homework_id=hw_id,
+            answer_text=data.answer_text,
+            file_url=data.file_url,
+            submitted_at=datetime.utcnow()
+        )
+        db.add(submission)
 
     # Mark homework submitted (pending admin review)
     progress.homework_submitted = True
     progress.homework_submitted_at = datetime.utcnow()
-    # Note: is_completed only set when admin grades/approves
+    # Reset completion — admin needs to re-approve after resubmission
+    progress.is_completed = False
+    progress.completed_at = None
 
     await db.commit()
-    return {"message": "Vazifa muvaffaqiyatli topshirildi! Admin tekshirishini kuting.", "submission_id": submission.id}
+    return {
+        "message": "Vazifa muvaffaqiyatli topshirildi! Admin tekshirishini kuting.",
+        "submission_id": submission.id,
+        "status": "pending"
+    }
 
 
 @router.get("/{hw_id}/status")
@@ -103,4 +123,6 @@ async def get_homework_status(
         "admin_comment": submission.admin_comment,
         "submitted_at": str(submission.submitted_at),
         "graded_at": str(submission.graded_at) if submission.graded_at else None,
+        "answer_text": submission.answer_text,
+        "file_url": submission.file_url,
     }

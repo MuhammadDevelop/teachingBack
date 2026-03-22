@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.user import User, UserCourse
 from app.models.course import Module, Course, Lesson
 from app.models.progress import LessonProgress
+from app.models.homework import Homework, HomeworkSubmission
 from app.models.exam import Exam
 from app.models.payment import Payment
 from app.schemas.course import (
@@ -23,12 +24,20 @@ router = APIRouter(prefix="/courses", tags=["courses"])
 
 
 def _normalize_video_url(url):
-    """YouTube URL ni embed formatga o'zgartirish"""
+    """YouTube URL ni embed formatga o'zgartirish, boshqa URLlar ham qo'llab-quvvatlanadi"""
     if not url: return url
     url = url.strip()
+    # youtu.be short link
     match = re.match(r'https?://youtu\.be/([a-zA-Z0-9_-]+)', url)
     if match: return f"https://www.youtube.com/embed/{match.group(1)}"
+    # youtube.com/watch?v=
     match = re.match(r'https?://(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]+)', url)
+    if match: return f"https://www.youtube.com/embed/{match.group(1)}"
+    # youtube.com/embed/ — already correct
+    if re.match(r'https?://(?:www\.)?youtube\.com/embed/', url):
+        return url
+    # youtube.com/shorts/
+    match = re.match(r'https?://(?:www\.)?youtube\.com/shorts/([a-zA-Z0-9_-]+)', url)
     if match: return f"https://www.youtube.com/embed/{match.group(1)}"
     return url
 
@@ -108,7 +117,14 @@ async def get_course(
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_optional_user)
 ):
-    """Get course with lessons and access/progress info"""
+    """Get course with lessons and access/progress info.
+    
+    LESSON UNLOCK LOGIC:
+    - First lesson is always open (if module is paid)
+    - Next lesson unlocks ONLY when previous lesson's homework is APPROVED by admin
+    - If lesson has no homework, watching the video is enough
+    - Tests are for results only, they do NOT unlock anything
+    """
     result = await db.execute(
         select(Course).where(Course.id == course_id, Course.is_active == True)
     )
@@ -119,7 +135,6 @@ async def get_course(
     # Check if user has paid for this module
     has_paid = False
     if user:
-        # First check UserCourse table
         uc_result = await db.execute(
             select(UserCourse).where(
                 UserCourse.user_id == user.id,
@@ -129,7 +144,6 @@ async def get_course(
         )
         has_paid = uc_result.scalar_one_or_none() is not None
 
-        # Fallback: check Payment table directly
         if not has_paid:
             payment_result = await db.execute(
                 select(Payment).where(
@@ -139,7 +153,6 @@ async def get_course(
                 )
             )
             if payment_result.scalar_one_or_none():
-                # Payment exists but UserCourse missing — auto-create it
                 uc = UserCourse(
                     user_id=user.id,
                     course_id=course.id,
@@ -170,28 +183,29 @@ async def get_course(
             for prog in prog_result.scalars().all():
                 progress_map[prog.lesson_id] = prog
 
-    # Batch load exams for this course
-    exam_map = {}
-    if user and has_paid:
-        exam_result = await db.execute(
-            select(Exam).where(Exam.course_id == course.id)
-        )
-        for exam in exam_result.scalars().all():
-            exam_map[exam.after_lesson_order] = exam
-
-    # Batch load exam submissions
-    exam_passed_ids = set()
-    if user and exam_map:
-        from app.models.exam import ExamSubmission
-        exam_ids = [e.id for e in exam_map.values()]
-        sub_result = await db.execute(
-            select(ExamSubmission.exam_id).where(
-                ExamSubmission.user_id == user.id,
-                ExamSubmission.exam_id.in_(exam_ids),
-                ExamSubmission.passed == True
+    # Batch load homework submissions to check approval status
+    hw_submission_map = {}
+    if user:
+        lesson_ids = [l.id for l in lessons]
+        if lesson_ids:
+            hw_result = await db.execute(
+                select(Homework).where(Homework.lesson_id.in_(lesson_ids))
             )
-        )
-        exam_passed_ids = {row[0] for row in sub_result.all()}
+            hw_list = hw_result.scalars().all()
+            hw_ids = [h.id for h in hw_list]
+            hw_lesson_map = {h.id: h.lesson_id for h in hw_list}
+            
+            if hw_ids:
+                sub_result = await db.execute(
+                    select(HomeworkSubmission).where(
+                        HomeworkSubmission.user_id == user.id,
+                        HomeworkSubmission.homework_id.in_(hw_ids)
+                    )
+                )
+                for sub in sub_result.scalars().all():
+                    lesson_id = hw_lesson_map.get(sub.homework_id)
+                    if lesson_id:
+                        hw_submission_map[lesson_id] = sub
 
     lessons_with_access = []
     prev_completed = True  # First lesson always accessible
@@ -201,9 +215,11 @@ async def get_course(
 
         # Check progress from batch-loaded map
         progress_data = None
-        has_requirements = lesson.test is not None or lesson.homework is not None
+        has_homework = lesson.homework is not None
 
         prog = progress_map.get(lesson.id)
+        hw_sub = hw_submission_map.get(lesson.id)
+        
         if user:
             if prog:
                 progress_data = {
@@ -211,27 +227,26 @@ async def get_course(
                     "video_watched_at": str(prog.video_watched_at) if prog.video_watched_at else None,
                     "test_passed": prog.test_passed,
                     "homework_submitted": prog.homework_submitted,
+                    "homework_graded": hw_sub.is_graded if hw_sub else False,
                     "is_completed": prog.is_completed,
                 }
-                if has_requirements:
-                    prev_completed = prog.is_completed
+                
+                # UNLOCK LOGIC: Next lesson opens only when homework is approved
+                if has_homework:
+                    # Homework exists: must be submitted AND graded (approved) by admin
+                    prev_completed = hw_sub is not None and hw_sub.is_graded
                 else:
+                    # No homework: watching video is enough
                     prev_completed = prog.video_watched
             else:
-                if lesson.is_free and not has_requirements:
+                if lesson.is_free and not has_homework:
                     prev_completed = True
-                elif has_paid and not has_requirements:
+                elif has_paid and not has_homework:
                     prev_completed = True
                 else:
                     prev_completed = False
         else:
             prev_completed = False
-
-        # Check if exam is needed before this lesson
-        if lesson.order > 1 and lesson.order % 12 == 1 and user and has_paid:
-            exam = exam_map.get(lesson.order - 1)
-            if exam and exam.id not in exam_passed_ids:
-                has_access = False
 
         lessons_with_access.append(LessonDetailResponse(
             id=lesson.id,
@@ -244,7 +259,7 @@ async def get_course(
             order=lesson.order,
             is_free=lesson.is_free,
             has_test=lesson.test is not None,
-            has_homework=lesson.homework is not None,
+            has_homework=has_homework,
             has_game=False,
             has_access=has_access,
             progress=progress_data,
@@ -268,7 +283,7 @@ async def mark_video_watched(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Mark lesson video as watched - starts time limits for test/game/homework"""
+    """Mark lesson video as watched"""
     result = await db.execute(select(Lesson).where(Lesson.id == lesson_id))
     lesson = result.scalar_one_or_none()
     if not lesson:
@@ -295,16 +310,17 @@ async def mark_video_watched(
             progress.video_watched = True
             progress.video_watched_at = datetime.utcnow()
 
+    # If lesson has no homework, mark as completed when video is watched
+    if lesson.homework is None:
+        progress.is_completed = True
+        progress.completed_at = datetime.utcnow()
+
     await db.commit()
 
-    # Calculate deadlines
     watch_time = progress.video_watched_at
     return {
         "message": "Video ko'rildi deb belgilandi",
         "video_watched_at": str(watch_time),
-        "test_deadline": str(watch_time + timedelta(hours=2)),
-        "game_deadline": str(watch_time + timedelta(hours=3)),
-        "homework_deadline": str(watch_time + timedelta(hours=24)),
     }
 
 
@@ -315,7 +331,6 @@ async def get_lesson_progress(
     user: User = Depends(get_current_user)
 ):
     """Get progress for a specific lesson, including video_url and description"""
-    # Get lesson info
     lesson_result = await db.execute(select(Lesson).where(Lesson.id == lesson_id))
     lesson = lesson_result.scalar_one_or_none()
     if not lesson:
@@ -342,7 +357,6 @@ async def get_lesson_progress(
             **base,
             "video_watched": False,
             "test_passed": False,
-            "game_completed": False,
             "homework_submitted": False,
             "is_completed": False,
         }
@@ -352,10 +366,6 @@ async def get_lesson_progress(
         "video_watched": progress.video_watched,
         "video_watched_at": str(progress.video_watched_at) if progress.video_watched_at else None,
         "test_passed": progress.test_passed,
-        "game_completed": progress.game_completed,
         "homework_submitted": progress.homework_submitted,
         "is_completed": progress.is_completed,
-        "test_deadline": str(progress.video_watched_at + timedelta(hours=2)) if progress.video_watched_at else None,
-        "game_deadline": str(progress.video_watched_at + timedelta(hours=3)) if progress.video_watched_at else None,
-        "homework_deadline": str(progress.video_watched_at + timedelta(hours=24)) if progress.video_watched_at else None,
     }

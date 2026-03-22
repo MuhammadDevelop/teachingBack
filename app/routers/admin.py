@@ -16,6 +16,8 @@ from app.models.homework import Homework, HomeworkSubmission
 from app.models.game import GameExample, GameSubmission
 from app.models.exam import Exam, ExamQuestion, ExamSubmission
 from app.models.progress import LessonProgress
+from app.models.chat import ChatMessage
+from app.models.certificate import Certificate
 from app.utils.auth import get_current_admin
 from app.schemas.course import ModuleCreate, ModuleUpdate, CourseCreate, CourseUpdate, LessonCreate, LessonUpdate
 from app.schemas.test import TestCreate, HomeworkCreate, GameCreate, ExamCreate, HomeworkGradeRequest
@@ -195,6 +197,27 @@ async def delete_student(user_id: int, db: AsyncSession = Depends(get_db), admin
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="O'quvchi topilmadi")
+    
+    # Delete all related records to avoid FK constraint errors
+    await db.execute(delete(ChatMessage).where(
+        (ChatMessage.sender_id == user_id) | (ChatMessage.receiver_id == user_id)
+    ))
+    await db.execute(delete(Certificate).where(Certificate.user_id == user_id))
+    await db.execute(delete(LessonProgress).where(LessonProgress.user_id == user_id))
+    
+    # Delete test submissions
+    await db.execute(delete(TestSubmission).where(TestSubmission.user_id == user_id))
+    # Delete homework submissions
+    await db.execute(delete(HomeworkSubmission).where(HomeworkSubmission.user_id == user_id))
+    # Delete game submissions
+    await db.execute(delete(GameSubmission).where(GameSubmission.user_id == user_id))
+    # Delete exam submissions
+    await db.execute(delete(ExamSubmission).where(ExamSubmission.user_id == user_id))
+    # Delete user courses
+    await db.execute(delete(UserCourse).where(UserCourse.user_id == user_id))
+    # Delete payments
+    await db.execute(delete(Payment).where(Payment.user_id == user_id))
+    
     await db.delete(user)
     await db.commit()
     return {"success": True}
@@ -492,7 +515,8 @@ async def grade_homework(sub_id: int, data: HomeworkGradeRequest, db: AsyncSessi
     sub.is_graded = True
     sub.graded_at = datetime.utcnow()
 
-    # Mark lesson completed if test passed + homework graded
+    # Mark lesson completed when homework is graded/approved
+    # This is the KEY unlock mechanism — next video opens after this
     hw_result = await db.execute(select(Homework).where(Homework.id == sub.homework_id))
     hw = hw_result.scalar_one_or_none()
     if hw:
@@ -503,7 +527,7 @@ async def grade_homework(sub_id: int, data: HomeworkGradeRequest, db: AsyncSessi
             )
         )
         progress = prog_result.scalar_one_or_none()
-        if progress and progress.test_passed and not progress.is_completed:
+        if progress:
             progress.is_completed = True
             progress.completed_at = datetime.utcnow()
 

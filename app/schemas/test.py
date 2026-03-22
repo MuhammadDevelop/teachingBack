@@ -33,7 +33,7 @@ class TestQuestionWithAnswer(TestQuestionResponse):
 class TestCreate(BaseModel):
     lesson_id: int
     title: str
-    time_limit: int = 300
+    time_limit: int = 420
     passing_score: int = 7
     questions: list[TestQuestionCreate] = []
 

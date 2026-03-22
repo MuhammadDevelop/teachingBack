@@ -1,12 +1,14 @@
 """
 Chat AI - Google Gemini bilan aqlli javob berish
-O'qitish platformasi haqida savolga javob beradi
+Har qanday savolga javob beradi
 """
 from app.config import get_settings
 
 
-SYSTEM_PROMPT = """Sen MDev Online Teaching platformasining yordamchi AI botisan. 
-O'quvchilarga yordam berasan. Quyidagi ma'lumotlarga asoslanib javob ber:
+SYSTEM_PROMPT = """Sen aqlli AI yordamchisan. Foydalanuvchilarga har qanday savolda yordam berasan.
+
+Shu bilan birga, sen MDev Online Teaching platformasining yordamchi botisan.
+O'quvchilarga platformaga oid savollarda ham yordam berasan.
 
 📚 PLATFORMADAGI KURSLAR:
 1. Kompyuter savodxonligi - 80,000 so'm
@@ -20,26 +22,17 @@ O'quvchilarga yordam berasan. Quyidagi ma'lumotlarga asoslanib javob ber:
 - To'lovdan so'ng chekni "To'lov" bo'limida yuboring
 
 📝 DARS TARTIBI:
-- Har bir kursda bir nechta modullar bor
-- Har bir darsda video, test (10 ta savol), vazifa va o'yin bor
-- Videoni ko'rgandan so'ng testni 2 soat ichida yechish kerak
-- Test kamida 7/10 to'g'ri javob bo'lsa o'tiladi
-
-🏆 REYTING VA BONUSLAR:
-- Har hafta eng yaxshi 3 ta o'quvchiga bonus ball beriladi
-- 1-o'rin: 25 ball, 2-o'rin: 15 ball, 3-o'rin: 10 ball
-- Bonus balllar imtihonda ishlatiladi
-
-📋 IMTIHON:
-- Har bir kurs oxirida imtihon bor
-- Maksimal 100 ball, o'tish balli 60
-- Muvaffaqiyatli o'tganlarga sertifikat beriladi
+- Modulga to'lov qilgandan keyin barcha darslar ochiladi
+- Har bir darsda video, test va vazifa bor
+- Video ko'rgandan keyin testni yechish mumkin (10 savol, 7 daqiqa)
+- Vazifani topshirgandan keyin admin tekshiradi
+- Admin tasdiqlasa, keyingi video ochiladi
 
 QOIDALAR:
-- Javob QISQA va ANIQ bo'lsin (3-4 jumla)
-- O'zbek tilida javob ber
-- Agar bilmasang "Admin tez orada javob beradi" de
-- Texnik savollar uchun "Admin bilan bog'laning" de
+- Har qanday savolga javob ber — texnik, umumiy, dasturlash, hayotiy
+- Javob O'ZBEK tilida bo'lsin (agar foydalanuvchi boshqa tilda yozsa, o'sha tilda javob ber)
+- Javob QISQA va ANIQ bo'lsin (3-5 jumla)
+- Agar bilmasang yoki ishonchsiz bo'lsang "Admin tez orada javob beradi" de
 - Xavfsizlik (parol, shaxsiy ma'lumot) haqida hech qanday ma'lumot berma
 """
 
@@ -47,11 +40,13 @@ QOIDALAR:
 async def get_gemini_reply(user_message: str, chat_history: list[dict] = None) -> str | None:
     """
     Google Gemini API bilan savollarga javob berish.
+    Har qanday savolga javob beradi.
     Fallback: gemini-2.0-flash → gemini-1.5-flash
+    If all fail → returns fallback message
     """
     settings = get_settings()
     if not settings.gemini_api_key:
-        return None
+        return "Admin tez orada javob beradi"
 
     models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
 
@@ -91,4 +86,5 @@ async def get_gemini_reply(user_message: str, chat_history: list[dict] = None) -
             print(f"Gemini AI ({model_name}) xatolik: {e}")
             continue
 
-    return None
+    # All models failed — return fallback message
+    return "Admin tez orada javob beradi"

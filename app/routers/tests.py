@@ -51,7 +51,7 @@ async def start_test(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Start a test — check video watched and 2hr deadline"""
+    """Start a test — one attempt per video only"""
     result = await db.execute(select(Test).where(Test.id == test_id))
     test = result.scalar_one_or_none()
     if not test:
@@ -68,29 +68,37 @@ async def start_test(
     if not progress or not progress.video_watched:
         raise HTTPException(status_code=400, detail="Avval videoni ko'ring")
 
-    # If already passed, don't allow re-take
+    # ONE ATTEMPT PER VIDEO: if any completed submission exists, block
     existing = await db.execute(
         select(TestSubmission).where(
             TestSubmission.user_id == user.id,
             TestSubmission.test_id == test_id,
-            TestSubmission.passed == True
+            TestSubmission.completed_at != None
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Test allaqachon muvaffaqiyatli yechildi")
+        raise HTTPException(status_code=400, detail="Test allaqachon topshirilgan. Har bir video uchun faqat 1 marta test yechish mumkin.")
 
-    # Delete previous failed attempts
-    old_result = await db.execute(
+    # Check if there's already a started (not completed) submission
+    active_result = await db.execute(
         select(TestSubmission).where(
             TestSubmission.user_id == user.id,
-            TestSubmission.test_id == test_id
+            TestSubmission.test_id == test_id,
+            TestSubmission.completed_at == None
         )
     )
-    for old_sub in old_result.scalars().all():
-        await db.delete(old_sub)
-    await db.flush()
+    active_sub = active_result.scalar_one_or_none()
+    
+    if active_sub:
+        # Return existing active submission
+        return {
+            "submission_id": active_sub.id,
+            "time_limit": test.time_limit,
+            "started_at": str(active_sub.started_at),
+            "expires_at": str(active_sub.started_at + timedelta(seconds=test.time_limit)),
+        }
 
-    # Create submission (started)
+    # Create new submission
     submission = TestSubmission(
         user_id=user.id,
         test_id=test_id,
@@ -114,7 +122,7 @@ async def submit_test(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Submit test answers — auto-grade and update progress"""
+    """Submit test answers — auto-grade. Tests are for RESULTS ONLY, not for unlocking."""
     # Find the active submission
     sub_result = await db.execute(
         select(TestSubmission).where(
@@ -132,8 +140,9 @@ async def submit_test(
     test = test_result.scalar_one_or_none()
 
     elapsed = (datetime.utcnow() - submission.started_at).total_seconds()
-    if elapsed > test.time_limit + 10:  # 10 sec grace
-        raise HTTPException(status_code=400, detail="Test vaqti tugagan")
+    if elapsed > test.time_limit + 30:  # 30 sec grace for network delay
+        # Auto-grade with whatever answers were submitted
+        pass
 
     # Grade — strip and lowercase both sides for accurate comparison
     score = 0
@@ -152,7 +161,7 @@ async def submit_test(
     submission.completed_at = datetime.utcnow()
     await db.commit()
 
-    # Update lesson progress if passed
+    # Update lesson progress — test_passed is for RESULTS ONLY, not unlocking
     if passed:
         prog_result = await db.execute(
             select(LessonProgress).where(
@@ -164,10 +173,7 @@ async def submit_test(
         if progress:
             progress.test_passed = True
             progress.test_completed_at = datetime.utcnow()
-            # Lesson completed = test passed + homework submitted (graded)
-            if progress.test_passed and progress.homework_submitted:
-                progress.is_completed = True
-                progress.completed_at = datetime.utcnow()
+            # Note: is_completed is NOT set here — only homework approval sets it
             await db.commit()
 
     return TestResultResponse(
@@ -181,6 +187,17 @@ async def submit_test(
     )
 
 
+@router.post("/{test_id}/force-submit", response_model=TestResultResponse)
+async def force_submit_test(
+    test_id: int,
+    data: TestSubmitRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """Force submit test when user leaves the page — auto-grades with current answers"""
+    return await submit_test(test_id, data, db, user)
+
+
 @router.get("/{test_id}/result", response_model=TestResultResponse)
 async def get_test_result(
     test_id: int,
@@ -191,7 +208,7 @@ async def get_test_result(
         select(TestSubmission).where(
             TestSubmission.user_id == user.id,
             TestSubmission.test_id == test_id
-        )
+        ).order_by(TestSubmission.completed_at.desc())
     )
     submission = sub_result.scalar_one_or_none()
     if not submission:
