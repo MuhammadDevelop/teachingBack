@@ -59,6 +59,7 @@ class TestResultResponse(BaseModel):
     test_id: int
     score: int
     total: int
+    grade: int = 0  # 1, 2, or 3 based on score
     passed: bool
     started_at: str | None = None
     completed_at: str | None = None
@@ -106,7 +107,7 @@ class HomeworkSubmissionResponse(BaseModel):
 
 
 class HomeworkGradeRequest(BaseModel):
-    score: int  # 0-10
+    score: int  # 0, 1, or 2
     admin_comment: str | None = None
 
 

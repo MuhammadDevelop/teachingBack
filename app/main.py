@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from telegram import Update
 from sqlalchemy import text, inspect
 
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             migrations = [
                 ("users", "telegram_username", "VARCHAR(100)"),
+                ("test_submissions", "grade", "INTEGER DEFAULT 0"),
             ]
             for table_name, col_name, col_type in migrations:
                 try:
@@ -138,6 +140,11 @@ app.include_router(chat.router)
 app.include_router(certificates.router)
 app.include_router(results.router)
 app.include_router(questions.router)
+
+# Static files — serve uploaded homework files
+uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 
 @app.get("/")

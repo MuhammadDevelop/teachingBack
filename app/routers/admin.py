@@ -418,11 +418,16 @@ async def create_test(data: TestCreate, db: AsyncSession = Depends(get_db), admi
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"'{lesson.title}' darsida allaqachon test mavjud")
 
+    # 10 ta savol bo'lishi shart
+    if len(data.questions) != 10:
+        raise HTTPException(status_code=400, detail="Testda aynan 10 ta savol bo'lishi kerak")
+
     test = Test(lesson_id=data.lesson_id, title=data.title, time_limit=data.time_limit, passing_score=data.passing_score)
     db.add(test)
     await db.flush()
-    for q_data in data.questions:
+    for i, q_data in enumerate(data.questions):
         q = TestQuestion(test_id=test.id, **q_data.model_dump())
+        q.order = i + 1
         db.add(q)
     await db.commit()
     return {"id": test.id}
@@ -449,7 +454,41 @@ async def delete_test(test_id: int, db: AsyncSession = Depends(get_db), admin: U
     test = result.scalar_one_or_none()
     if not test:
         raise HTTPException(status_code=404, detail="Test topilmadi")
+    # Delete submissions first
+    await db.execute(delete(TestSubmission).where(TestSubmission.test_id == test_id))
     await db.delete(test)
+    await db.commit()
+    return {"success": True}
+
+
+@router.put("/tests/{test_id}")
+async def update_test(test_id: int, data: TestCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    """Update test — replace title, time_limit, and all questions"""
+    result = await db.execute(select(Test).where(Test.id == test_id))
+    test = result.scalar_one_or_none()
+    if not test:
+        raise HTTPException(status_code=404, detail="Test topilmadi")
+
+    # 10 ta savol bo'lishi shart
+    if len(data.questions) != 10:
+        raise HTTPException(status_code=400, detail="Testda aynan 10 ta savol bo'lishi kerak")
+
+    # Update test fields
+    test.title = data.title
+    test.time_limit = data.time_limit
+    test.passing_score = data.passing_score
+
+    # Delete old questions
+    for q in list(test.questions):
+        await db.delete(q)
+    await db.flush()
+
+    # Add new questions
+    for i, q_data in enumerate(data.questions):
+        q = TestQuestion(test_id=test.id, **q_data.model_dump())
+        q.order = i + 1
+        db.add(q)
+
     await db.commit()
     return {"success": True}
 
@@ -508,8 +547,8 @@ async def grade_homework(sub_id: int, data: HomeworkGradeRequest, db: AsyncSessi
     sub = result.scalar_one_or_none()
     if not sub:
         raise HTTPException(status_code=404, detail="Topshiriq topilmadi")
-    if data.score < 0 or data.score > 10:
-        raise HTTPException(status_code=400, detail="Baho 0 dan 10 gacha bo'lishi kerak")
+    if data.score < 0 or data.score > 2:
+        raise HTTPException(status_code=400, detail="Baho 0 dan 2 gacha bo'lishi kerak")
     sub.score = data.score
     sub.admin_comment = data.admin_comment
     sub.is_graded = True

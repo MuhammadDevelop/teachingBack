@@ -11,7 +11,7 @@ class Test(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id", ondelete="CASCADE"), unique=True, nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    time_limit: Mapped[int] = mapped_column(Integer, default=300)  # seconds (5 min default)
+    time_limit: Mapped[int] = mapped_column(Integer, default=420)  # seconds (7 min default)
     passing_score: Mapped[int] = mapped_column(Integer, default=7)  # out of 10
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -44,6 +44,7 @@ class TestSubmission(Base):
     answers: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string: {"1": "a", "2": "c", ...}
     score: Mapped[int] = mapped_column(Integer, default=0)
     total: Mapped[int] = mapped_column(Integer, default=10)
+    grade: Mapped[int] = mapped_column(Integer, default=0)  # 1, 2, or 3 based on score
     passed: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

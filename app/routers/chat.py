@@ -89,25 +89,35 @@ def get_keyword_reply(text: str) -> str:
     """Fallback: keyword-based auto-reply agar Gemini ishlamasa"""
     t = text.lower().strip()
 
-    if any(w in t for w in ["salom", "assalom", "hello", "hi"]):
+    if any(w in t for w in ["salom", "assalom", "hello", "hi", "привет"]):
+        if any(w in t for w in ["hello", "hi"]):
+            return "Hello! 👋 How can I help you? Admin will respond shortly."
+        if any(w in t for w in ["привет", "здравст"]):
+            return "Здравствуйте! 👋 Чем могу помочь? Админ скоро ответит."
         return "Assalomu alaykum! 👋 Sizga qanday yordam bera olaman? Admin tez orada javob beradi."
 
-    if any(w in t for w in ["narx", "to'lov", "pul", "qancha", "price", "summa"]):
-        return "💰 Kurs narxlari:\n• Kompyuter savodxonligi - 80,000 so'm\n• Dasturlash - 100,000 so'm\n• Montaj - 80,000 so'm\n\nTo'lov uchun 'To'lov' bo'limiga o'ting."
+    if any(w in t for w in ["narx", "to'lov", "pul", "qancha", "price", "summa", "цена", "стоимость"]):
+        return "💰 Kurs narxlari:\n• Kompyuter savodxonligi - 100,000 so'm\n• Dasturlash - 130,000 so'm\n• Montaj - 90,000 so'm\n\nTo'lov uchun 'To'lov' bo'limiga o'ting."
 
     if any(w in t for w in ["karta", "card", "perevod"]):
         return "💳 To'lov kartasi: 5614 6819 0511 2722\nEga: Orifjonov Muhammaddiyor\nMuddati: 07/30\n\nTo'lovdan so'ng chekni yuklang."
 
     if any(w in t for w in ["test", "sinov", "savol"]):
-        return "📝 Har bir darsda 10 ta test savol bor. Videoni ko'rganingizdan so'ng 2 soat ichida testni yechishingiz kerak."
+        return "📝 Har bir darsda 10 ta test savol bor. Testni yechish uchun 7 daqiqa vaqt beriladi. Sahifadan chiqsangiz test avtomatik topshiriladi."
+
+    if any(w in t for w in ["kurs", "dars", "modul", "course"]):
+        return "📚 Bizda 3 ta modul bor:\n1. Kompyuter savodxonligi - 100,000 so'm\n2. Dasturlash - 130,000 so'm\n3. Montaj - 90,000 so'm\n\nHar bir modulda bir nechta kurs va darslar mavjud."
+
+    if any(w in t for w in ["o'qituvchi", "teacher", "ustoz"]):
+        return "👨‍🏫 O'qituvchi: Muhammaddiyor Orifjonov\n3+ yil IT sohasida tajriba\nFull-stack developer, video kontentlar yaratgan"
 
     if any(w in t for w in ["sertifikat", "certificate"]):
         return "🏆 Kursni muvaffaqiyatli tugatganingizdan so'ng admin sizga sertifikat yuboradi."
 
-    if any(w in t for w in ["yordam", "help", "qanday"]):
-        return "🤖 Savolingizga admin tez orada javob beradi.\n• Darslar — Modullar bo'limida\n• To'lov — To'lov bo'limida\n• Test — Dars ko'rilgandan so'ng"
+    if any(w in t for w in ["yordam", "help", "qanday", "помощь"]):
+        return "🤖 Savolingizga admin tez orada javob beradi.\n• Darslar — Modullar bo'limida\n• To'lov — To'lov bo'limida\n• Test — 10 savol, 7 daqiqa"
 
-    if any(w in t for w in ["rahmat", "raxmat", "thanks"]):
+    if any(w in t for w in ["rahmat", "raxmat", "thanks", "спасибо"]):
         return "Arzimaydi! 😊 Yana qanday yordam kerak bo'lsa yozing."
 
     return "🤖 Xabaringiz qabul qilindi! Admin tez orada javob beradi."

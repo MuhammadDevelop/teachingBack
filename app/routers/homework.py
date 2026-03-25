@@ -1,5 +1,7 @@
+import os
+import uuid
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -11,6 +13,10 @@ from app.schemas.test import HomeworkResponse, HomeworkSubmitRequest, HomeworkSu
 from app.utils.auth import get_current_user
 
 router = APIRouter(prefix="/homework", tags=["homework"])
+
+# Upload directory
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "uploads", "homework")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.get("/lesson/{lesson_id}", response_model=HomeworkResponse)
@@ -28,14 +34,46 @@ async def get_homework_for_lesson(
     return hw
 
 
-@router.post("/{hw_id}/submit")
-async def submit_homework(
+@router.post("/{hw_id}/upload")
+async def upload_homework_file(
     hw_id: int,
-    data: HomeworkSubmitRequest,
+    file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Submit homework — no limit for submissions.
+    """Upload a homework file — returns the file URL"""
+    hw_result = await db.execute(select(Homework).where(Homework.id == hw_id))
+    hw = hw_result.scalar_one_or_none()
+    if not hw:
+        raise HTTPException(status_code=404, detail="Vazifa topilmadi")
+
+    # Check file size (max 10MB)
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Fayl hajmi 10MB dan oshmasin")
+
+    # Generate unique filename
+    ext = os.path.splitext(file.filename)[1] if file.filename else ""
+    filename = f"{user.id}_{hw_id}_{uuid.uuid4().hex[:8]}{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(contents)
+
+    file_url = f"/uploads/homework/{filename}"
+    return {"file_url": file_url, "filename": file.filename}
+
+
+@router.post("/{hw_id}/submit")
+async def submit_homework(
+    hw_id: int,
+    answer_text: str = Form(None),
+    file_url: str = Form(None),
+    file: UploadFile = File(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """Submit homework — supports text, file URL, or file upload.
     If already submitted, update the existing submission.
     Status becomes 'pending' (not graded) until admin approves.
     """
@@ -55,6 +93,22 @@ async def submit_homework(
     if not progress or not progress.video_watched:
         raise HTTPException(status_code=400, detail="Avval videoni ko'ring")
 
+    # Handle file upload
+    uploaded_file_url = file_url
+    if file and file.filename:
+        contents = await file.read()
+        if len(contents) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Fayl hajmi 10MB dan oshmasin")
+        ext = os.path.splitext(file.filename)[1] if file.filename else ""
+        filename = f"{user.id}_{hw_id}_{uuid.uuid4().hex[:8]}{ext}"
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        with open(filepath, "wb") as f:
+            f.write(contents)
+        uploaded_file_url = f"/uploads/homework/{filename}"
+
+    if not answer_text and not uploaded_file_url:
+        raise HTTPException(status_code=400, detail="Javob matni yoki fayl yuklang")
+
     # Check existing submission — allow resubmission (unlimited)
     existing_result = await db.execute(
         select(HomeworkSubmission).where(
@@ -66,8 +120,8 @@ async def submit_homework(
     
     if existing:
         # Update existing submission — reset grading
-        existing.answer_text = data.answer_text
-        existing.file_url = data.file_url
+        existing.answer_text = answer_text
+        existing.file_url = uploaded_file_url
         existing.is_graded = False
         existing.score = None
         existing.admin_comment = None
@@ -79,8 +133,8 @@ async def submit_homework(
         submission = HomeworkSubmission(
             user_id=user.id,
             homework_id=hw_id,
-            answer_text=data.answer_text,
-            file_url=data.file_url,
+            answer_text=answer_text,
+            file_url=uploaded_file_url,
             submitted_at=datetime.utcnow()
         )
         db.add(submission)

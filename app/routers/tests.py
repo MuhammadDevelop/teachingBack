@@ -153,10 +153,19 @@ async def submit_test(
         if user_answer == correct:
             score += 1
 
+    # Calculate grade: 0-3=baho 1, 4-6=baho 2, 7+=baho 3
+    if score <= 3:
+        grade = 1
+    elif score <= 6:
+        grade = 2
+    else:
+        grade = 3
+
     passed = score >= test.passing_score
     submission.answers = json.dumps(data.answers)
     submission.score = score
     submission.total = total
+    submission.grade = grade
     submission.passed = passed
     submission.completed_at = datetime.utcnow()
     await db.commit()
@@ -181,6 +190,7 @@ async def submit_test(
         test_id=test_id,
         score=score,
         total=total,
+        grade=grade,
         passed=passed,
         started_at=str(submission.started_at),
         completed_at=str(submission.completed_at),
@@ -219,6 +229,7 @@ async def get_test_result(
         test_id=test_id,
         score=submission.score,
         total=submission.total,
+        grade=submission.grade,
         passed=submission.passed,
         started_at=str(submission.started_at) if submission.started_at else None,
         completed_at=str(submission.completed_at) if submission.completed_at else None,
