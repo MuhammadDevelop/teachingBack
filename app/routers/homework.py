@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.homework import Homework, HomeworkSubmission
 from app.models.progress import LessonProgress
-from app.schemas.test import HomeworkResponse, HomeworkSubmitRequest, HomeworkSubmissionResponse
+from app.schemas.test import HomeworkResponse
 from app.utils.auth import get_current_user
 
 router = APIRouter(prefix="/homework", tags=["homework"])
