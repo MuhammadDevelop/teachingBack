@@ -461,6 +461,19 @@ async def delete_test(test_id: int, db: AsyncSession = Depends(get_db), admin: U
     return {"success": True}
 
 
+@router.delete("/tests/by-lesson/{lesson_id}")
+async def delete_test_by_lesson(lesson_id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    """Delete test by lesson_id — admin UI knows lesson, not test_id"""
+    result = await db.execute(select(Test).where(Test.lesson_id == lesson_id))
+    test = result.scalar_one_or_none()
+    if not test:
+        raise HTTPException(status_code=404, detail="Bu darsda test topilmadi")
+    await db.execute(delete(TestSubmission).where(TestSubmission.test_id == test.id))
+    await db.delete(test)
+    await db.commit()
+    return {"success": True}
+
+
 @router.put("/tests/{test_id}")
 async def update_test(test_id: int, data: TestCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
     """Update test — replace title, time_limit, and all questions"""

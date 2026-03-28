@@ -350,6 +350,8 @@ async def get_lesson_progress(
         "video_url": _normalize_video_url(lesson.video_url),
         "is_free": lesson.is_free,
         "order": lesson.order,
+        "has_test": lesson.test is not None,
+        "has_homework": lesson.homework is not None,
     }
 
     if not progress:
