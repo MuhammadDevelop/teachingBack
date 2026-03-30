@@ -1,13 +1,15 @@
 """
-Chat AI - Google Gemini bilan aqlli javob berish
+Chat AI - Google Gemini REST API bilan ishlaydi
+httpx ishlatadi (google-generativeai SDK kerak EMAS)
 3 tilda (O'zbek, Rus, Ingliz) gaplasha oladi
-Kurs narxlari va ma'lumotlari yangilangan
 """
+import httpx
 from app.config import get_settings
 
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 SYSTEM_PROMPT = """Sen MDev Online Teaching platformasining professional AI yordamchisisan.
-Sening ismingMDev AI. Sen do'stona, aqlli va foydali yordamchisan.
+Sening isming MDev AI. Sen do'stona, aqlli va foydali yordamchisan.
 
 🌍 TIL QOIDALARI:
 - Foydalanuvchi O'zbekcha yozsa — O'zbekcha javob ber
@@ -20,107 +22,115 @@ Sening ismingMDev AI. Sen do'stona, aqlli va foydali yordamchisan.
 - "hello", "hi" → "Hello! 👋 How can I help you today?"
 - "привет", "здравствуйте" → "Здравствуйте! 👋 Чем могу помочь?"
 
-📚 PLATFORMADAGI KURSLAR VA NARXLARI:
-1. Kompyuter savodxonligi — 100,000 so'm
-   - Word, Excel, PowerPoint, Canva, internet asoslari
-   - Boshlang'ich daraja, kompyuterni noldan o'rganish
+📚 PLATFORMADAGI KURSLAR:
+1. Kompyuter savodxonligi — Word, Excel, PowerPoint, Canva
+2. Dasturlash — HTML, CSS, JavaScript, React, Python, FastAPI
+3. Montaj (Video editing) — CapCut, Premiere Pro
 
-2. Dasturlash — 130,000 so'm
-   - HTML, CSS, JavaScript, React, Python, FastAPI
-   - Web dasturlash, frontend va backend
+👨‍🏫 O'QITUVCHI: Muhammaddiyor Orifjonov (3+ yil IT tajriba)
 
-3. Montaj (Video editing) — 90,000 so'm
-   - CapCut, Premiere Pro, video montaj
-   - YouTube, Instagram uchun video yaratish
-
-👨‍🏫 O'QITUVCHI: Muhammaddiyor Orifjonov
-- 3+ yil IT sohasida tajriba
-- Full-stack developer
-- Video kontentlar yaratgan
-
-💳 TO'LOV:
-- Karta: 5614 6819 0511 2722
-- Egasi: Orifjonov Muhammaddiyor
-- Muddati: 07/30
-- To'lovdan so'ng chekni "To'lov" bo'limida yuklang
-- AI avtomatik tekshiradi, 1-2 daqiqada tasdiqlaydi
+💳 TO'LOV: 5614 6819 0511 2722 (Orifjonov Muhammaddiyor)
+📞 ALOQA: +998889810206
 
 📝 DARS TARTIBI:
-1. Modul uchun to'lov qiling → barcha darslar umrbod ochiladi
-2. Har bir darsda: Video → Test → Uyga vazifa
-3. Test: 10 ta savol, 7 daqiqa vaqt
-4. Vazifani admin tekshiradi (0, 1 yoki 2 baho)
-5. Vazifa tasdiqlangandan keyin keyingi video ochiladi
-6. Test paytida boshqa sahifaga o'tib bo'lmaydi!
+1. Modul uchun to'lov → barcha darslar umrbod ochiladi
+2. Har bir darsda: Video → Test (10 savol, 7 daq) → Uyga vazifa
+3. Vazifani admin tekshiradi (0, 1 yoki 2 baho)
+4. Tasdiqlangandan keyin keyingi video ochiladi
 
-🏆 REYTING TIZIMI:
-- Haftalik reyting yangilanadi
-- 1-o'rindagi o'quvchi bonus oladi: 1 ta vazifani bajarmasdan keyingi videoni ko'rish mumkin
-
-🏅 SERTIFIKAT:
-- Kursni to'liq tugatganingizdan keyin admin sertifikat yuboradi
-
-❗ MUHIM QOIDALAR:
-- Javoblar QISQA va ANIQ bo'lsin (3-7 jumla)
-- Emojilardan foydalanishing mumkin 😊
-- Agar bilmasang — "Bu haqida admin batafsil javob beradi" de
-- Parol, shaxsiy ma'lumot haqida hech narsa berma
-- Do'stona va professional bo'l
-- Agar dasturlash savoli bo'lsa — kod misollar bilan javob ber
-- Agar platformaga tegishli bo'lmagan savol bo'lsa ham javob berishga harakat qil
+QOIDALAR:
+- Javoblar QISQA va ANIQ (3-7 jumla)
+- Emojilar ishlatishing mumkin 😊
+- Bilmasang — "Admin tez orada javob beradi" de
+- Parol/shaxsiy ma'lumot berma
+- Dasturlash savoli bo'lsa kod misollar bilan javob ber
 """
 
 
-async def get_gemini_reply(user_message: str, chat_history: list[dict] = None) -> str | None:
+async def get_gemini_reply(user_message: str, chat_history: list = None) -> str | None:
     """
-    Google Gemini API bilan savollarga javob berish.
-    Async versiya — FastAPI bilan to'g'ri ishlaydi.
+    Google Gemini REST API bilan javob berish.
+    httpx ishlatadi — google-generativeai SDK kerak emas.
     Fallback: gemini-2.0-flash → gemini-1.5-flash
     """
     settings = get_settings()
     if not settings.gemini_api_key:
+        print("⚠️ GEMINI_API_KEY topilmadi!")
         return None
 
     models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
 
-    for model_name in models_to_try:
-        try:
-            import google.generativeai as genai
+    # Build contents
+    contents = []
 
-            genai.configure(api_key=settings.gemini_api_key)
-            model = genai.GenerativeModel(
-                model_name,
-                system_instruction=SYSTEM_PROMPT
-            )
+    # System instruction as first user message
+    contents.append({
+        "role": "user",
+        "parts": [{"text": f"[SYSTEM INSTRUCTION]: {SYSTEM_PROMPT}"}]
+    })
+    contents.append({
+        "role": "model",
+        "parts": [{"text": "Tushundim! Men MDev AI yordamchiman. Sizga 3 tilda yordam beraman. 😊"}]
+    })
 
-            contents = []
-            if chat_history:
-                # Use last 10 messages for better context
-                for msg in chat_history[-10:]:
-                    role = "user" if msg.get("role") == "user" else "model"
-                    contents.append({
-                        "role": role,
-                        "parts": [{"text": msg["text"]}]
-                    })
-
+    # Add chat history
+    if chat_history:
+        for msg in chat_history[-10:]:
+            role = "user" if msg.get("role") == "user" else "model"
             contents.append({
-                "role": "user",
-                "parts": [{"text": user_message}]
+                "role": role,
+                "parts": [{"text": msg["text"]}]
             })
 
-            # Use async version for FastAPI compatibility
-            response = await model.generate_content_async(contents)
-            reply = response.text.strip()
+    # Add current message
+    contents.append({
+        "role": "user",
+        "parts": [{"text": user_message}]
+    })
 
-            # Allow longer responses for detailed answers
-            if len(reply) > 1000:
-                reply = reply[:997] + "..."
+    for model_name in models_to_try:
+        try:
+            url = GEMINI_API_URL.format(model=model_name)
 
-            return reply
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    url,
+                    params={"key": settings.gemini_api_key},
+                    json={"contents": contents},
+                    headers={"Content-Type": "application/json"}
+                )
+
+                if response.status_code != 200:
+                    print(f"⚠️ Gemini {model_name} xato: {response.status_code} - {response.text[:200]}")
+                    continue
+
+                data = response.json()
+
+                # Extract reply text
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    print(f"⚠️ Gemini {model_name}: candidates bo'sh")
+                    continue
+
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if not parts:
+                    continue
+
+                reply = parts[0].get("text", "").strip()
+
+                if not reply:
+                    continue
+
+                # Limit length
+                if len(reply) > 1000:
+                    reply = reply[:997] + "..."
+
+                return reply
 
         except Exception as e:
-            print(f"Gemini AI ({model_name}) xatolik: {e}")
+            print(f"⚠️ Gemini {model_name} xatolik: {e}")
             continue
 
     # All models failed
+    print("⚠️ Barcha Gemini modellari ishlamadi")
     return None
