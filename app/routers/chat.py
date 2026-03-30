@@ -85,42 +85,102 @@ async def send_message(
     return {"id": msg.id, "message": "Xabar yuborildi"}
 
 
+def detect_lang(text: str) -> str:
+    """Detect language: uz, ru, or en"""
+    t = text.lower()
+    # Russian characters
+    if any(c in t for c in "абвгдежзиклмнопрстуфхцчшщъыьэюя"):
+        return "ru"
+    # English patterns
+    en_words = ["hello", "hi", "help", "how", "what", "course", "price", "contact", "thank", "certificate"]
+    if any(w in t for w in en_words):
+        return "en"
+    return "uz"
+
+
 def get_keyword_reply(text: str) -> str:
-    """Fallback: keyword-based auto-reply agar Gemini ishlamasa"""
+    """Robust multilingual keyword-based auto-reply"""
     t = text.lower().strip()
+    lang = detect_lang(t)
 
-    if any(w in t for w in ["salom", "assalom", "hello", "hi", "привет"]):
-        if any(w in t for w in ["hello", "hi"]):
-            return "Hello! 👋 How can I help you? Admin will respond shortly."
-        if any(w in t for w in ["привет", "здравст"]):
-            return "Здравствуйте! 👋 Чем могу помочь? Админ скоро ответит."
-        return "Assalomu alaykum! 👋 Sizga qanday yordam bera olaman? Admin tez orada javob beradi."
+    # ===== SALOMLASHISH =====
+    if any(w in t for w in ["salom", "assalom", "alaykum"]):
+        return "Vaalaykum assalom! 👋 Sizga qanday yordam bera olaman?"
+    if any(w in t for w in ["hello", "hi ", "hey"]) or t in ["hi", "hey"]:
+        return "Hello! 👋 How can I help you?"
+    if any(w in t for w in ["привет", "здравст", "салом"]):
+        return "Здравствуйте! 👋 Чем могу помочь?"
 
-    if any(w in t for w in ["narx", "to'lov", "pul", "qancha", "price", "summa", "цена", "стоимость"]):
-        return "💰 Kurs narxlari:\n• Kompyuter savodxonligi - 100,000 so'm\n• Dasturlash - 130,000 so'm\n• Montaj - 90,000 so'm\n\nTo'lov uchun 'To'lov' bo'limiga o'ting."
+    # ===== KURS NARXLARI =====
+    if any(w in t for w in ["narx", "qancha", "to'lov", "pul", "summa", "baho"]):
+        return "💰 Bizning kurslarimiz narxi 2 oylik va 4 oylik paketlarga qarab farqlanadi.\n\nBatafsil ma'lumot uchun admin bilan bog'laning.\n📞 +998889810206"
+    if any(w in t for w in ["price", "cost", "how much", "pay"]):
+        return "💰 Course prices depend on the package (2 or 4 months).\n\nPlease contact the admin for details.\n📞 +998889810206"
+    if any(w in t for w in ["цена", "стоимость", "сколько", "оплат"]):
+        return "💰 Стоимость курсов зависит от выбранного пакета (2 или 4 месяца).\n\nПодробности уточняйте у администратора.\n📞 +998889810206"
 
-    if any(w in t for w in ["karta", "card", "perevod"]):
-        return "💳 To'lov kartasi: 5614 6819 0511 2722\nEga: Orifjonov Muhammaddiyor\nMuddati: 07/30\n\nTo'lovdan so'ng chekni yuklang."
+    # ===== KURSLAR =====
+    if any(w in t for w in ["kurs", "dars", "modul", "o'rganish", "frontend", "backend", "word", "excel"]):
+        return "📚 Bizda quyidagi kurslar mavjud:\n\n• Frontend (HTML, CSS, JavaScript, React)\n• Backend (Python, FastAPI)\n• Kompyuter savodxonligi (Word, Excel)\n• AI kurslari\n\nBatafsil: kurslar bo'limiga kiring yoki admin bilan bog'laning."
+    if any(w in t for w in ["course", "learn", "program", "lesson"]):
+        return "📚 We offer courses in:\n\n• Frontend (HTML, CSS, JavaScript, React)\n• Backend (Python, FastAPI)\n• Computer Literacy (Word, Excel)\n• AI courses\n\nCheck the courses section for details."
+    if any(w in t for w in ["курс", "урок", "обучен", "модул"]):
+        return "📚 У нас есть курсы по:\n\n• Frontend (HTML, CSS, JavaScript, React)\n• Backend (Python, FastAPI)\n• Компьютерная грамотность (Word, Excel)\n• AI курсы\n\nПодробнее в разделе курсов."
 
-    if any(w in t for w in ["test", "sinov", "savol"]):
-        return "📝 Har bir darsda 10 ta test savol bor. Testni yechish uchun 7 daqiqa vaqt beriladi. Sahifadan chiqsangiz test avtomatik topshiriladi."
+    # ===== TO'LOV KARTA =====
+    if any(w in t for w in ["karta", "card", "perevod", "to'la"]):
+        return "💳 To'lov kartasi:\n\n5614 6819 0511 2722\nEga: Orifjonov Muhammaddiyor\nMuddati: 07/30\n\nTo'lovdan so'ng chekni 'To'lov' bo'limida yuklang."
 
-    if any(w in t for w in ["kurs", "dars", "modul", "course"]):
-        return "📚 Bizda 3 ta modul bor:\n1. Kompyuter savodxonligi - 100,000 so'm\n2. Dasturlash - 130,000 so'm\n3. Montaj - 90,000 so'm\n\nHar bir modulda bir nechta kurs va darslar mavjud."
+    # ===== ALOQA =====
+    if any(w in t for w in ["telefon", "raqam", "aloqa", "bog'lan", "call"]):
+        return "📞 Biz bilan bog'lanish:\n\n+998889810206\n\nTelegram yoki telefon orqali murojaat qilishingiz mumkin."
+    if any(w in t for w in ["contact", "phone", "reach"]):
+        return "📞 Contact us:\n\n+998889810206\n\nYou can reach us via Telegram or phone."
+    if any(w in t for w in ["контакт", "телефон", "связ", "номер"]):
+        return "📞 Связь с нами:\n\n+998889810206\n\nМожете написать в Telegram или позвонить."
 
-    if any(w in t for w in ["o'qituvchi", "teacher", "ustoz"]):
-        return "👨‍🏫 O'qituvchi: Muhammaddiyor Orifjonov\n3+ yil IT sohasida tajriba\nFull-stack developer, video kontentlar yaratgan"
+    # ===== TEST =====
+    if any(w in t for w in ["test", "sinov", "savol", "imtihon"]):
+        return "📝 Har bir darsda 10 ta test savol bor.\n\n• Vaqt: 7 daqiqa\n• Test paytida boshqa sahifaga o'tib bo'lmaydi\n• O'tsa test avtomatik topshiriladi\n• Natija: 0-3 = 1 baho, 4-6 = 2 baho, 7+ = 3 baho"
 
-    if any(w in t for w in ["sertifikat", "certificate"]):
+    # ===== VAZIFA =====
+    if any(w in t for w in ["vazifa", "homework", "topshir"]):
+        return "📋 Har bir darsda uyga vazifa bor.\n\n• Vazifani topshiring\n• Admin tekshirib baho qo'yadi (0, 1 yoki 2)\n• Tasdiqlangandan keyin keyingi video ochiladi"
+
+    # ===== SERTIFIKAT =====
+    if any(w in t for w in ["sertifikat", "certificate", "сертификат"]):
+        if lang == "en":
+            return "🏆 After successfully completing the course, the admin will send you a certificate."
+        if lang == "ru":
+            return "🏆 После успешного завершения курса администратор отправит вам сертификат."
         return "🏆 Kursni muvaffaqiyatli tugatganingizdan so'ng admin sizga sertifikat yuboradi."
 
-    if any(w in t for w in ["yordam", "help", "qanday", "помощь"]):
-        return "🤖 Savolingizga admin tez orada javob beradi.\n• Darslar — Modullar bo'limida\n• To'lov — To'lov bo'limida\n• Test — 10 savol, 7 daqiqa"
+    # ===== O'QITUVCHI =====
+    if any(w in t for w in ["o'qituvchi", "teacher", "ustoz", "преподаватель", "kim"]):
+        return "👨‍🏫 O'qituvchi: Muhammaddiyor Orifjonov\n\n• 3+ yil IT sohasida tajriba\n• Full-stack developer\n• Video kontentlar yaratgan"
 
-    if any(w in t for w in ["rahmat", "raxmat", "thanks", "спасибо"]):
-        return "Arzimaydi! 😊 Yana qanday yordam kerak bo'lsa yozing."
+    # ===== RAHMAT =====
+    if any(w in t for w in ["rahmat", "raxmat", "thanks", "thank", "спасибо"]):
+        if lang == "en":
+            return "You're welcome! 😊 Let me know if you need anything else."
+        if lang == "ru":
+            return "Пожалуйста! 😊 Обращайтесь, если будут вопросы."
+        return "Arzimaydi! 😊 Yana savolingiz bo'lsa yozing."
 
-    return "🤖 Xabaringiz qabul qilindi! Admin tez orada javob beradi."
+    # ===== YORDAM =====
+    if any(w in t for w in ["yordam", "help", "qanday", "nima", "помощь", "помоги"]):
+        if lang == "en":
+            return "🤖 I can help you with:\n\n• Course info and prices\n• Payment details\n• Lesson progress\n• Technical questions\n\nJust ask!"
+        if lang == "ru":
+            return "🤖 Я могу помочь с:\n\n• Информация о курсах\n• Оплата\n• Прогресс уроков\n• Технические вопросы\n\nПросто спрашивайте!"
+        return "🤖 Men sizga yordam bera olaman:\n\n• Kurslar haqida\n• To'lov ma'lumotlari\n• Darslar bo'yicha\n• Texnik savollar\n\nBemalol so'rang!"
+
+    # ===== DEFAULT =====
+    if lang == "en":
+        return "🤖 Thank you for your message! The admin will respond shortly.\n\n📞 Contact: +998889810206"
+    if lang == "ru":
+        return "🤖 Спасибо за сообщение! Админ скоро ответит.\n\n📞 Контакт: +998889810206"
+    return "🤖 Xabaringiz qabul qilindi! Admin tez orada javob beradi.\n\n📞 Aloqa: +998889810206"
 
 
 @router.get("/my")
