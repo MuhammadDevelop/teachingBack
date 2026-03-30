@@ -331,7 +331,10 @@ async def get_lesson_progress(
     user: User = Depends(get_current_user)
 ):
     """Get progress for a specific lesson, including video_url and description"""
-    lesson_result = await db.execute(select(Lesson).where(Lesson.id == lesson_id))
+    lesson_result = await db.execute(
+        select(Lesson).where(Lesson.id == lesson_id)
+        .options(selectinload(Lesson.homework), selectinload(Lesson.test))
+    )
     lesson = lesson_result.scalar_one_or_none()
     if not lesson:
         raise HTTPException(status_code=404, detail="Dars topilmadi")
