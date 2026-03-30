@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.user import User
+from app.models.course import Lesson
 from app.models.homework import Homework, HomeworkSubmission
 from app.models.progress import LessonProgress
 from app.schemas.test import HomeworkResponse
@@ -30,7 +31,20 @@ async def get_homework_for_lesson(
     )
     hw = result.scalar_one_or_none()
     if not hw:
-        raise HTTPException(status_code=404, detail="Vazifa topilmadi")
+        # Auto-create homework for this lesson
+        lesson_result = await db.execute(select(Lesson).where(Lesson.id == lesson_id))
+        lesson = lesson_result.scalar_one_or_none()
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Dars topilmadi")
+        hw = Homework(
+            lesson_id=lesson_id,
+            title=f"{lesson.title} - Uyga vazifa",
+            description="Dars bo'yicha uyga vazifangizni bajaring va topshiring.",
+            deadline_hours=24
+        )
+        db.add(hw)
+        await db.commit()
+        await db.refresh(hw)
     return hw
 
 
