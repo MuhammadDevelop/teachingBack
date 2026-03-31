@@ -37,21 +37,23 @@ async def send_message(
 
     # Student xabari — Telegram guruhga yuborish + AI javob
     if user.role != "admin":
-        # 1. Telegram guruhga yuborish (admin ko'rishi uchun)
+        # 1. Telegram guruhga yuborish (fire-and-forget — AI javobni sekinlashtirmasin)
+        import asyncio
         tg_message = (
             f"💬 <b>Yangi xabar</b>\n\n"
             f"👤 {user.full_name} ({user.phone})\n\n"
             f"📝 {data.message}"
         )
-        await send_to_telegram_group(tg_message)
+        asyncio.create_task(send_to_telegram_group(tg_message))
 
-        # 2. AI Auto-reply
+        # 2. Chat history (EXCLUDING the current message we just saved)
         history_result = await db.execute(
             select(ChatMessage).where(
                 or_(
                     ChatMessage.sender_id == user.id,
                     ChatMessage.receiver_id == user.id
-                )
+                ),
+                ChatMessage.id != msg.id  # Exclude current message
             ).order_by(ChatMessage.created_at.desc()).limit(10)
         )
         history_msgs = history_result.scalars().all()
@@ -61,14 +63,14 @@ async def send_message(
             role = "user" if h.sender_id == user.id else "model"
             chat_history.append({"role": role, "text": h.message})
 
-        # Gemini AI javob
+        # 3. Gemini AI javob
         reply_text = None
         try:
             reply_text = await get_gemini_reply(data.message, chat_history)
         except Exception as e:
             print(f"⚠️ Gemini xatolik: {e}")
 
-        # Fallback
+        # Fallback — keyword reply
         if not reply_text:
             reply_text = get_keyword_reply(data.message)
 
