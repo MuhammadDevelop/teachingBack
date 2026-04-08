@@ -153,26 +153,81 @@ async def setup_webhook(app, webhook_url: str):
 
 
 async def send_to_telegram_group(message: str):
-    """Send a message to the Telegram group (mdev_uchun_savollar)"""
+    """Send a message to the Telegram group/admin"""
     settings = get_settings()
     if not settings.telegram_bot_token or not settings.telegram_group_chat_id:
         print("⚠️ Telegram group chat ID yoki bot token sozlanmagan")
-        return
+        print(f"   bot_token: {'bor' if settings.telegram_bot_token else 'YO`Q'}")
+        print(f"   group_chat_id: '{settings.telegram_group_chat_id}'")
+        return False
 
     try:
         import httpx
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
-            resp = await client.post(url, json={
+            payload = {
                 "chat_id": settings.telegram_group_chat_id,
                 "text": message,
                 "parse_mode": "HTML",
-            })
+            }
+            print(f"📤 Telegram ga yuborilmoqda: chat_id={settings.telegram_group_chat_id}")
+            resp = await client.post(url, json=payload)
             data = resp.json()
             if data.get("ok"):
                 print("✅ Telegram guruhga xabar yuborildi")
+                return True
             else:
-                print(f"❌ Telegram guruh xatolik: {data}")
+                error_code = data.get("error_code", "")
+                description = data.get("description", "")
+                print(f"❌ Telegram xatolik: [{error_code}] {description}")
+                print(f"   To'liq javob: {data}")
+                return False
+    except httpx.TimeoutException:
+        print("⚠️ Telegram ga yuborishda timeout (15s)")
+        return False
     except Exception as e:
-        print(f"⚠️ Telegram guruhga yuborishda xatolik: {e}")
+        print(f"⚠️ Telegram ga yuborishda xatolik: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def send_admin_notification(message: str, db_session_factory=None):
+    """Send notification to admin - tries group chat first, then admin's personal telegram_id"""
+    # 1. Avval group/admin chat_id ga yuborish
+    success = await send_to_telegram_group(message)
+    if success:
+        return True
+
+    # 2. Agar ishlamasa, DB dan admin telegram_id ni topib yuborish
+    if db_session_factory:
+        try:
+            settings = get_settings()
+            async with db_session_factory() as db:
+                result = await db.execute(
+                    select(User).where(User.role == "admin", User.telegram_id.isnot(None))
+                )
+                admin_user = result.scalar_one_or_none()
+                if admin_user and admin_user.telegram_id:
+                    print(f"🔄 Admin telegram_id orqali yuborilmoqda: {admin_user.telegram_id}")
+                    import httpx
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+                        resp = await client.post(url, json={
+                            "chat_id": admin_user.telegram_id,
+                            "text": message,
+                            "parse_mode": "HTML",
+                        })
+                        data = resp.json()
+                        if data.get("ok"):
+                            print("✅ Admin ga shaxsiy xabar yuborildi")
+                            return True
+                        else:
+                            print(f"❌ Admin shaxsiy xabar xatolik: {data}")
+                else:
+                    print("⚠️ DB da telegram_id bor admin topilmadi")
+        except Exception as e:
+            print(f"⚠️ Admin notification fallback xatolik: {e}")
+
+    return False
 

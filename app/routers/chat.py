@@ -9,7 +9,8 @@ from app.models.user import User
 from app.models.chat import ChatMessage
 from app.utils.auth import get_current_user, get_current_admin
 from app.services.chat_ai import get_gemini_reply
-from app.services.telegram_service import send_to_telegram_group
+from app.services.telegram_service import send_to_telegram_group, send_admin_notification
+from app.database import AsyncSessionLocal
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -37,14 +38,20 @@ async def send_message(
 
     # Student xabari — Telegram guruhga yuborish + AI javob
     if user.role != "admin":
-        # 1. Telegram guruhga yuborish (fire-and-forget — AI javobni sekinlashtirmasin)
-        import asyncio
+        # 1. Telegram guruhga/adminga yuborish
+        from datetime import datetime as dt
         tg_message = (
             f"💬 <b>Yangi xabar</b>\n\n"
-            f"👤 {user.full_name} ({user.phone})\n\n"
+            f"👤 {user.full_name} ({user.phone})\n"
+            f"🕐 {dt.utcnow().strftime('%H:%M %d.%m.%Y')}\n\n"
             f"📝 {data.message}"
         )
-        asyncio.create_task(send_to_telegram_group(tg_message))
+        try:
+            result = await send_admin_notification(tg_message, db_session_factory=AsyncSessionLocal)
+            if not result:
+                print(f"⚠️ Admin ga xabar yuborilmadi! Student: {user.full_name}, Xabar: {data.message[:50]}")
+        except Exception as e:
+            print(f"⚠️ Telegram xabar yuborishda xatolik: {e}")
 
         # 2. Chat history (EXCLUDING the current message we just saved)
         history_result = await db.execute(
