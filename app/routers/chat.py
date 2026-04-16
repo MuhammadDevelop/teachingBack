@@ -40,9 +40,15 @@ async def send_message(
     if user.role != "admin":
         # 1. Telegram guruhga/adminga yuborish
         from datetime import datetime as dt
+        # Telegram username linkini tayyorlash
+        tg_username_line = ""
+        if user.telegram_username:
+            tg_username_line = f"\n📱 Telegram: @{user.telegram_username} (https://t.me/{user.telegram_username})"
+        elif user.telegram_id:
+            tg_username_line = f"\n📱 Telegram: <a href='tg://user?id={user.telegram_id}'>Foydalanuvchiga yozish</a>"
         tg_message = (
             f"💬 <b>Yangi xabar</b>\n\n"
-            f"👤 {user.full_name} ({user.phone})\n"
+            f"👤 {user.full_name} ({user.phone}){tg_username_line}\n"
             f"🕐 {dt.utcnow().strftime('%H:%M %d.%m.%Y')}\n\n"
             f"📝 {data.message}"
         )
