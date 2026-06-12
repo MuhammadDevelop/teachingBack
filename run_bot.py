@@ -1,4 +1,8 @@
+import sys
 import asyncio
+
+sys.stdout.reconfigure(encoding='utf-8')
+
 from app.database import AsyncSessionLocal
 from app.services.telegram_service import run_bot_polling
 
