@@ -19,7 +19,7 @@ class ModuleResponse(BaseModel):
 
 class ModuleCreate(BaseModel):
     name: str
-    slug: str
+    slug: str | None = None
     description: str | None = None
     price: int
     order: int = 0
@@ -51,7 +51,7 @@ class CourseResponse(BaseModel):
 class CourseCreate(BaseModel):
     module_id: int
     name: str
-    slug: str
+    slug: str | None = None
     description: str | None = None
     thumbnail: str | None = None
     order: int = 0
@@ -94,7 +94,7 @@ class LessonDetailResponse(LessonResponse):
 class LessonCreate(BaseModel):
     course_id: int
     title: str
-    slug: str
+    slug: str | None = None
     description: str | None = None
     video_url: str | None = None
     video_duration: int | None = None

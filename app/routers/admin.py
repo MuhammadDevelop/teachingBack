@@ -25,6 +25,16 @@ from app.schemas.payment import PaymentReview
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+import uuid
+
+def generate_slug(text: str) -> str:
+    slug = str(text).lower()
+    slug = re.sub(r'[^a-z0-9]+', '-', slug)
+    slug = slug.strip('-')
+    if not slug:
+        slug = uuid.uuid4().hex[:8]
+    return slug
+
 
 def normalize_video_url(url: str | None) -> str | None:
     """YouTube URL ni embed formatga o'zgartirish"""
@@ -226,7 +236,10 @@ async def delete_student(user_id: int, db: AsyncSession = Depends(get_db), admin
 # ==================== MODULES ====================
 @router.post("/modules")
 async def create_module(data: ModuleCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
-    m = Module(**data.model_dump())
+    module_data = data.model_dump()
+    if not module_data.get("slug"):
+        module_data["slug"] = generate_slug(module_data["name"])
+    m = Module(**module_data)
     db.add(m)
     await db.commit()
     return {"id": m.id}
@@ -285,7 +298,10 @@ async def delete_module(module_id: int, db: AsyncSession = Depends(get_db), admi
 # ==================== COURSES ====================
 @router.post("/courses")
 async def create_course(data: CourseCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
-    course = Course(**data.model_dump())
+    course_data = data.model_dump()
+    if not course_data.get("slug"):
+        course_data["slug"] = generate_slug(course_data["name"])
+    course = Course(**course_data)
     db.add(course)
     await db.commit()
     return {"id": course.id}
@@ -354,6 +370,8 @@ async def list_lessons(course_id: int = None, db: AsyncSession = Depends(get_db)
 @router.post("/lessons")
 async def create_lesson(data: LessonCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
     lesson_data = data.model_dump()
+    if not lesson_data.get("slug"):
+        lesson_data["slug"] = generate_slug(lesson_data["title"])
     lesson_data["video_url"] = normalize_video_url(lesson_data.get("video_url"))
     lesson = Lesson(**lesson_data)
     db.add(lesson)
