@@ -127,20 +127,44 @@ def get_keyword_reply(text: str) -> str:
         return "Здравствуйте! 👋 Чем могу помочь?"
 
     # ===== KURS NARXLARI =====
-    if any(w in t for w in ["narx", "qancha", "to'lov", "pul", "summa", "baho"]):
-        return "💰 Bizning kurslarimiz narxi 2 oylik va 4 oylik paketlarga qarab farqlanadi.\n\nBatafsil ma'lumot uchun admin bilan bog'laning.\n📞 +998889810206"
-    if any(w in t for w in ["price", "cost", "how much", "pay"]):
-        return "💰 Course prices depend on the package (2 or 4 months).\n\nPlease contact the admin for details.\n📞 +998889810206"
-    if any(w in t for w in ["цена", "стоимость", "сколько", "оплат"]):
-        return "💰 Стоимость курсов зависит от выбранного пакета (2 или 4 месяца).\n\nПодробности уточняйте у администратора.\n📞 +998889810206"
+    if any(w in t for w in ["narx", "qancha", "to'lov", "pul", "summa", "baho", "arzon", "qimmat"]):
+        return "💰 Kurslarimiz narxlari:\n\n💻 Kompyuter savodxonligi — 100,000 so'm\n⚡ Dasturlash — 130,000 so'm\n🎬 Montaj — 90,000 so'm\n\nTo'lov bir marta — modul umrbod ochiq! 🎉\n💳 Karta: 5614 6819 0511 2722"
+    if any(w in t for w in ["price", "cost", "how much", "pay", "cheap", "expensive"]):
+        return "💰 Course prices:\n\n💻 Computer Literacy — 100,000 sum\n⚡ Programming — 130,000 sum\n🎬 Video Editing — 90,000 sum\n\nOne-time payment — lifetime access! 🎉\n💳 Card: 5614 6819 0511 2722"
+    if any(w in t for w in ["цена", "стоимость", "сколько", "оплат", "дёшево", "дорого"]):
+        return "💰 Стоимость курсов:\n\n💻 Компьютерная грамотность — 100 000 сум\n⚡ Программирование — 130 000 сум\n🎬 Монтаж — 90 000 сум\n\nОдноразовый платёж — доступ навсегда! 🎉\n💳 Карта: 5614 6819 0511 2722"
 
     # ===== KURSLAR =====
     if any(w in t for w in ["kurs", "dars", "modul", "o'rganish", "frontend", "backend", "word", "excel"]):
-        return "📚 Bizda quyidagi kurslar mavjud:\n\n• Frontend (HTML, CSS, JavaScript, React)\n• Backend (Python, FastAPI)\n• Kompyuter savodxonligi (Word, Excel)\n• AI kurslari\n\nBatafsil: kurslar bo'limiga kiring yoki admin bilan bog'laning."
-    if any(w in t for w in ["course", "learn", "program", "lesson"]):
-        return "📚 We offer courses in:\n\n• Frontend (HTML, CSS, JavaScript, React)\n• Backend (Python, FastAPI)\n• Computer Literacy (Word, Excel)\n• AI courses\n\nCheck the courses section for details."
+        return "📚 Bizda quyidagi kurslar mavjud:\n\n💻 Kompyuter savodxonligi — Word, Excel, PowerPoint, Canva\n⚡ Dasturlash — HTML, CSS, JavaScript, React, Python, FastAPI\n🎬 Montaj — CapCut, Premiere Pro\n\nQaysi kurs sizga qiziq? 🤔"
+    if any(w in t for w in ["course", "learn", "program", "lesson", "module"]):
+        return "📚 We offer:\n\n💻 Computer Literacy — Word, Excel, PowerPoint, Canva\n⚡ Programming — HTML, CSS, JS, React, Python, FastAPI\n🎬 Video Editing — CapCut, Premiere Pro\n\nWhich course interests you? 🤔"
     if any(w in t for w in ["курс", "урок", "обучен", "модул"]):
-        return "📚 У нас есть курсы по:\n\n• Frontend (HTML, CSS, JavaScript, React)\n• Backend (Python, FastAPI)\n• Компьютерная грамотность (Word, Excel)\n• AI курсы\n\nПодробнее в разделе курсов."
+        return "📚 Наши курсы:\n\n💻 Компьютерная грамотность — Word, Excel, PowerPoint, Canva\n⚡ Программирование — HTML, CSS, JS, React, Python, FastAPI\n🎬 Монтаж — CapCut, Premiere Pro\n\nКакой курс вас интересует? 🤔"
+
+    # ===== DASTURLASH — TEXNIK SAVOLLAR =====
+    if any(w in t for w in ["html", "css", "javascript", "js", "react", "python", "fastapi", "code", "kod", "код"]):
+        if lang == "en":
+            return "💻 Great question about programming!\n\nOur Programming course covers:\n• HTML & CSS — Web page structure and design\n• JavaScript — Interactivity and logic\n• React — Modern frontend framework\n• Python & FastAPI — Backend development\n\nTotal: 130,000 sum. Want to start? 🚀"
+        if lang == "ru":
+            return "💻 Отличный вопрос о программировании!\n\nНаш курс охватывает:\n• HTML & CSS — Структура и дизайн веб-страниц\n• JavaScript — Интерактивность и логика\n• React — Современный фронтенд фреймворк\n• Python & FastAPI — Бэкенд разработка\n\nВсего: 130 000 сум. Хотите начать? 🚀"
+        return "💻 Dasturlash kursi tarkibi:\n\n• HTML & CSS — Web sahifa tuzilishi va dizayni\n• JavaScript — Interaktivlik va logika\n• React — Zamonaviy frontend framework\n• Python & FastAPI — Backend dasturlash\n\nNarxi: 130,000 so'm. Boshlaysizmi? 🚀"
+
+    # ===== RO'YXATDAN O'TISH =====
+    if any(w in t for w in ["ro'yxat", "register", "регистрац", "sign up", "akkaunt", "аккаунт"]):
+        if lang == "en":
+            return "📝 How to register:\n\n1. Enter your phone number\n2. Open our Telegram bot\n3. Get a 6-digit code\n4. Enter the code on the site\n\nIt's free and takes 1 minute! 🎉"
+        if lang == "ru":
+            return "📝 Как зарегистрироваться:\n\n1. Введите номер телефона\n2. Откройте наш Telegram бот\n3. Получите 6-значный код\n4. Введите код на сайте\n\nБесплатно и займёт 1 минуту! 🎉"
+        return "📝 Ro'yxatdan o'tish tartibi:\n\n1. Telefon raqamingizni kiriting\n2. Telegram botimizni oching\n3. 6 raqamli kodni oling\n4. Kodni saytga kiriting\n\nBepul va 1 daqiqa vaqt oladi! 🎉"
+
+    # ===== REYTING =====
+    if any(w in t for w in ["reyting", "rating", "рейтинг", "ball", "балл", "score"]):
+        if lang == "en":
+            return "🏆 Rating system:\n\n• Your scores come from tests and homework\n• All students are ranked on the leaderboard\n• Rating updates weekly\n• Compete with other students! 💪"
+        if lang == "ru":
+            return "🏆 Система рейтинга:\n\n• Баллы считаются по тестам и заданиям\n• Все студенты в общем рейтинге\n• Обновляется еженедельно\n• Соревнуйтесь с другими! 💪"
+        return "🏆 Reyting tizimi:\n\n• Ballaringiz test va vazifalardan hisoblanadi\n• Barcha o'quvchilar umumiy reytingda\n• Har hafta yangilanadi\n• Boshqa o'quvchilar bilan raqobat qiling! 💪"
 
     # ===== TO'LOV KARTA =====
     if any(w in t for w in ["karta", "card", "perevod", "to'la"]):
@@ -192,10 +216,10 @@ def get_keyword_reply(text: str) -> str:
 
     # ===== DEFAULT =====
     if lang == "en":
-        return "🤖 Thank you for your message! The admin will respond shortly.\n\n📞 Contact: +998889810206"
+        return "🤖 Thank you for your message! I've noted it.\n\nI can help with:\n• 📚 Courses & prices\n• 💳 Payment info\n• 📝 Test rules\n• 💻 Programming questions\n\nOr contact admin: +998889810206"
     if lang == "ru":
-        return "🤖 Спасибо за сообщение! Админ скоро ответит.\n\n📞 Контакт: +998889810206"
-    return "🤖 Xabaringiz qabul qilindi! Admin tez orada javob beradi.\n\n📞 Aloqa: +998889810206"
+        return "🤖 Спасибо за сообщение!\n\nЯ могу помочь с:\n• 📚 Курсы и цены\n• 💳 Информация об оплате\n• 📝 Правила тестов\n• 💻 Вопросы по программированию\n\nИли свяжитесь с админом: +998889810206"
+    return "🤖 Xabaringiz qabul qilindi!\n\nMen sizga yordam bera olaman:\n• 📚 Kurslar va narxlar\n• 💳 To'lov ma'lumotlari\n• 📝 Test qoidalari\n• 💻 Dasturlash savollari\n\nYoki admin bilan bog'laning: +998889810206"
 
 
 @router.get("/my")
@@ -260,11 +284,39 @@ async def get_all_conversations(
     )
     student_ids = [row[0] for row in result.all()]
 
+    if not student_ids:
+        return []
+
     # Batch load all students
     students_result = await db.execute(
         select(User).where(User.id.in_(student_ids))
     )
     students_map = {u.id: u for u in students_result.scalars().all()}
+
+    # Batch: unread counts per student
+    unread_result = await db.execute(
+        select(ChatMessage.sender_id, func.count()).where(
+            ChatMessage.sender_id.in_(student_ids),
+            ChatMessage.is_from_admin == False,
+            ChatMessage.is_read == False
+        ).group_by(ChatMessage.sender_id)
+    )
+    unread_map = dict(unread_result.all())
+
+    # Batch: last message per student (using all messages involving each student)
+    all_messages = await db.execute(
+        select(ChatMessage).where(
+            or_(
+                ChatMessage.sender_id.in_(student_ids),
+                ChatMessage.receiver_id.in_(student_ids)
+            )
+        ).order_by(ChatMessage.created_at.desc())
+    )
+    last_msg_map = {}
+    for msg in all_messages.scalars().all():
+        sid = msg.sender_id if msg.sender_id in students_map else msg.receiver_id
+        if sid not in last_msg_map:
+            last_msg_map[sid] = msg
 
     conversations = []
     for sid in student_ids:
@@ -272,22 +324,7 @@ async def get_all_conversations(
         if not student:
             continue
 
-        # Last message
-        last_msg = await db.execute(
-            select(ChatMessage).where(
-                or_(ChatMessage.sender_id == sid, ChatMessage.receiver_id == sid)
-            ).order_by(ChatMessage.created_at.desc()).limit(1)
-        )
-        last = last_msg.scalar_one_or_none()
-
-        # Unread count
-        unread = await db.execute(
-            select(func.count()).where(
-                ChatMessage.sender_id == sid,
-                ChatMessage.is_from_admin == False,
-                ChatMessage.is_read == False
-            )
-        )
+        last = last_msg_map.get(sid)
 
         # Telegram link
         tg_link = None
@@ -303,7 +340,7 @@ async def get_all_conversations(
             "telegram_link": tg_link,
             "last_message": last.message[:50] if last else "",
             "last_time": str(last.created_at) if last else "",
-            "unread": unread.scalar() or 0,
+            "unread": unread_map.get(sid, 0),
         })
 
     conversations.sort(key=lambda x: x["last_time"], reverse=True)

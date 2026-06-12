@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import base64
+import uuid
 
 from app.database import get_db
 from app.models.user import User
@@ -11,6 +11,7 @@ from app.schemas.payment import PaymentCreate, PaymentResponse, PaymentCardInfo
 from app.utils.auth import get_current_user
 from app.config import get_settings
 from app.services.payment_ai import verify_payment_check
+from app.services.cloudinary_service import upload_to_cloudinary
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -62,20 +63,29 @@ async def submit_check(
     if pending.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="To'lov tekshirilmoqda, iltimos kuting")
 
-    # Read and encode the image
+    # Read the image
     image_data = await check_image.read()
     if len(image_data) > 10 * 1024 * 1024:  # 10MB max
         raise HTTPException(status_code=400, detail="Rasm hajmi 10MB dan oshmasligi kerak")
 
-    image_b64 = base64.b64encode(image_data).decode('utf-8')
-    content_type = check_image.content_type or "image/jpeg"
-    image_url = f"data:{content_type};base64,{image_b64}"
+    # Upload to Cloudinary instead of storing base64 in DB
+    try:
+        ext = check_image.filename.rsplit(".", 1)[-1] if check_image.filename and "." in check_image.filename else "jpg"
+        unique_name = f"check_{user.id}_{module_id}_{uuid.uuid4().hex[:8]}.{ext}"
+        upload_result = await upload_to_cloudinary(image_data, unique_name, folder="payment_checks")
+        image_url = upload_result["url"]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Rasm yuklashda xatolik: {str(e)}")
 
     # AI bilan chekni tekshirish (faqat admin uchun tavsiya/izoh sifatida)
     ai_comment = ""
     ai_verified = False
     try:
-        ai_result = await verify_payment_check(image_url, expected_amount=module.price)
+        import base64
+        image_b64 = base64.b64encode(image_data).decode('utf-8')
+        content_type = check_image.content_type or "image/jpeg"
+        data_url = f"data:{content_type};base64,{image_b64}"
+        ai_result = await verify_payment_check(data_url, expected_amount=module.price)
         ai_comment = ai_result.get("ai_comment", "")
         ai_verified = ai_result.get("is_valid", False)
     except Exception as e:
@@ -93,6 +103,7 @@ async def submit_check(
     )
     db.add(payment)
     await db.commit()
+    await db.refresh(payment)
 
     return {
         "message": "✅ To'lov cheki yuborildi! Admin tekshirib, tasdiqlagandan so'ng kurslar ochiladi.",
@@ -111,10 +122,17 @@ async def get_my_payments(
         select(Payment).where(Payment.user_id == user.id).order_by(Payment.created_at.desc())
     )
     payments = result.scalars().all()
+
+    # Batch load modules
+    module_ids = list(set(p.module_id for p in payments))
+    modules_map = {}
+    if module_ids:
+        modules_result = await db.execute(select(Module).where(Module.id.in_(module_ids)))
+        modules_map = {m.id: m for m in modules_result.scalars().all()}
+
     response = []
     for p in payments:
-        module_result = await db.execute(select(Module).where(Module.id == p.module_id))
-        module = module_result.scalar_one_or_none()
+        module = modules_map.get(p.module_id)
         response.append({
             "id": p.id,
             "module_id": p.module_id,

@@ -763,10 +763,15 @@ async def list_certificates(db: AsyncSession = Depends(get_db), admin: User = De
         select(Certificate).order_by(Certificate.created_at.desc())
     )
     certs = result.scalars().all()
+
+    # Batch load users
+    user_ids = list(set(c.user_id for c in certs))
+    users_result = await db.execute(select(User).where(User.id.in_(user_ids))) if user_ids else None
+    users_map = {u.id: u for u in users_result.scalars().all()} if users_result else {}
+
     response = []
     for c in certs:
-        u = await db.execute(select(User).where(User.id == c.user_id))
-        user = u.scalar_one_or_none()
+        user = users_map.get(c.user_id)
         response.append({
             "id": c.id,
             "user_id": c.user_id,
@@ -849,7 +854,12 @@ async def get_lessons_for_select(
     admin: User = Depends(get_current_admin)
 ):
     """Admin formasi uchun darslar ro'yxati (select dropdown)"""
-    q = select(Lesson).options(selectinload(Lesson.course)).order_by(Lesson.order)
+    q = select(Lesson).options(
+        selectinload(Lesson.course),
+        selectinload(Lesson.test),
+        selectinload(Lesson.homework),
+        selectinload(Lesson.game),
+    ).order_by(Lesson.order)
     if course_id:
         q = q.where(Lesson.course_id == course_id)
     result = await db.execute(q)

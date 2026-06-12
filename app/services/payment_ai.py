@@ -2,6 +2,7 @@
 To'lov chekini AI bilan tekshirish - Google Gemini Vision API
 Orifjonov Muhammaddiyor nomiga tushganmi va summani tekshiradi
 """
+import asyncio
 import json
 import re
 from app.config import get_settings
@@ -68,7 +69,8 @@ FAQAT JSON formatda javob ber, boshqa hech narsa yozma:
 {{"recipient_name": "...", "amount": 0, "timestamp": "...", "is_payment_screenshot": true/false}}
 """
 
-        response = model.generate_content([prompt, image_part])
+        # Sync Gemini call ni alohida threadga o'tkazish
+        response = await asyncio.to_thread(model.generate_content, [prompt, image_part])
         response_text = response.text.strip()
 
         # JSON ni parse qilish

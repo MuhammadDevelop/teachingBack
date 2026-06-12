@@ -28,9 +28,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    courses: Mapped[list["UserCourse"]] = relationship("UserCourse", back_populates="user", lazy="selectin")
-    payments: Mapped[list["Payment"]] = relationship("Payment", back_populates="user", lazy="selectin", foreign_keys="Payment.user_id")
-    lesson_progress: Mapped[list["LessonProgress"]] = relationship("LessonProgress", back_populates="user", lazy="selectin")
+    courses: Mapped[list["UserCourse"]] = relationship("UserCourse", back_populates="user", lazy="noload")
+    payments: Mapped[list["Payment"]] = relationship("Payment", back_populates="user", lazy="noload", foreign_keys="Payment.user_id")
+    lesson_progress: Mapped[list["LessonProgress"]] = relationship("LessonProgress", back_populates="user", lazy="noload")
 
 
 class UserCourse(Base):

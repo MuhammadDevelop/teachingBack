@@ -66,7 +66,9 @@ async def get_modules(
 ):
     """Get all modules with their courses and payment status"""
     result = await db.execute(
-        select(Module).where(Module.is_active == True).order_by(Module.order)
+        select(Module).where(Module.is_active == True)
+        .options(selectinload(Module.courses))
+        .order_by(Module.order)
     )
     modules = result.scalars().all()
 
@@ -83,10 +85,8 @@ async def get_modules(
 
     response = []
     for m in modules:
-        courses_result = await db.execute(
-            select(Course).where(Course.module_id == m.id, Course.is_active == True).order_by(Course.order)
-        )
-        courses = courses_result.scalars().all()
+        courses = [c for c in m.courses if c.is_active]
+        courses.sort(key=lambda c: c.order)
         response.append({
             "id": m.id, "name": m.name, "slug": m.slug,
             "description": m.description, "price": m.price,
@@ -165,7 +165,9 @@ async def get_course(
 
     # Get lessons
     lessons_result = await db.execute(
-        select(Lesson).where(Lesson.course_id == course.id).order_by(Lesson.order)
+        select(Lesson).where(Lesson.course_id == course.id)
+        .options(selectinload(Lesson.homework), selectinload(Lesson.test))
+        .order_by(Lesson.order)
     )
     lessons = lessons_result.scalars().all()
 
@@ -284,7 +286,10 @@ async def mark_video_watched(
     user: User = Depends(get_current_user)
 ):
     """Mark lesson video as watched"""
-    result = await db.execute(select(Lesson).where(Lesson.id == lesson_id))
+    result = await db.execute(
+        select(Lesson).where(Lesson.id == lesson_id)
+        .options(selectinload(Lesson.homework))
+    )
     lesson = result.scalar_one_or_none()
     if not lesson:
         raise HTTPException(status_code=404, detail="Dars topilmadi")

@@ -1,6 +1,5 @@
-import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -12,12 +11,9 @@ from app.models.homework import Homework, HomeworkSubmission
 from app.models.progress import LessonProgress
 from app.schemas.test import HomeworkResponse
 from app.utils.auth import get_current_user
+from app.services.cloudinary_service import upload_to_cloudinary
 
 router = APIRouter(prefix="/homework", tags=["homework"])
-
-# Upload directory
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "uploads", "homework")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.get("/lesson/{lesson_id}", response_model=HomeworkResponse)
@@ -55,7 +51,7 @@ async def upload_homework_file(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Upload a homework file — returns the file URL"""
+    """Upload a homework file to Cloudinary — returns the file URL"""
     hw_result = await db.execute(select(Homework).where(Homework.id == hw_id))
     hw = hw_result.scalar_one_or_none()
     if not hw:
@@ -67,14 +63,18 @@ async def upload_homework_file(
         raise HTTPException(status_code=400, detail="Fayl hajmi 10MB dan oshmasin")
 
     # Generate unique filename
-    ext = os.path.splitext(file.filename)[1] if file.filename else ""
-    filename = f"{user.id}_{hw_id}_{uuid.uuid4().hex[:8]}{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
+    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else ""
+    unique_name = f"{user.id}_{hw_id}_{uuid.uuid4().hex[:8]}"
+    if ext:
+        unique_name = f"{unique_name}.{ext}"
 
-    with open(filepath, "wb") as f:
-        f.write(contents)
+    # Upload to Cloudinary
+    try:
+        result = await upload_to_cloudinary(contents, unique_name)
+        file_url = result["url"]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fayl yuklashda xatolik: {str(e)}")
 
-    file_url = f"/uploads/homework/{filename}"
     return {"file_url": file_url, "filename": file.filename}
 
 
@@ -87,7 +87,7 @@ async def submit_homework(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """Submit homework — supports text, file URL, or file upload.
+    """Submit homework — supports text, file URL, or file upload to Cloudinary.
     If already submitted, update the existing submission.
     Status becomes 'pending' (not graded) until admin approves.
     """
@@ -107,18 +107,23 @@ async def submit_homework(
     if not progress or not progress.video_watched:
         raise HTTPException(status_code=400, detail="Avval videoni ko'ring")
 
-    # Handle file upload
+    # Handle file upload to Cloudinary
     uploaded_file_url = file_url
     if file and file.filename:
         contents = await file.read()
         if len(contents) > 10 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Fayl hajmi 10MB dan oshmasin")
-        ext = os.path.splitext(file.filename)[1] if file.filename else ""
-        filename = f"{user.id}_{hw_id}_{uuid.uuid4().hex[:8]}{ext}"
-        filepath = os.path.join(UPLOAD_DIR, filename)
-        with open(filepath, "wb") as f:
-            f.write(contents)
-        uploaded_file_url = f"/uploads/homework/{filename}"
+
+        ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else ""
+        unique_name = f"{user.id}_{hw_id}_{uuid.uuid4().hex[:8]}"
+        if ext:
+            unique_name = f"{unique_name}.{ext}"
+
+        try:
+            result = await upload_to_cloudinary(contents, unique_name)
+            uploaded_file_url = result["url"]
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Fayl yuklashda xatolik: {str(e)}")
 
     if not answer_text and not uploaded_file_url:
         raise HTTPException(status_code=400, detail="Javob matni yoki fayl yuklang")
@@ -161,6 +166,7 @@ async def submit_homework(
     progress.completed_at = None
 
     await db.commit()
+    await db.refresh(submission)
     return {
         "message": "Vazifa muvaffaqiyatli topshirildi! Admin tekshirishini kuting.",
         "submission_id": submission.id,

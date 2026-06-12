@@ -16,11 +16,11 @@ async def get_profile(user: User = Depends(get_current_user)):
         id=user.id,
         full_name=user.full_name,
         phone=user.phone,
-        is_verified=user.is_verified,
         role=user.role,
+        is_active=user.is_active,
         avatar=user.avatar,
         bio=user.bio,
-        created_at=user.created_at,
+        created_at=str(user.created_at) if user.created_at else None,
     )
 
 
@@ -42,11 +42,11 @@ async def update_profile(
         id=user.id,
         full_name=user.full_name,
         phone=user.phone,
-        is_verified=user.is_verified,
         role=user.role,
+        is_active=user.is_active,
         avatar=user.avatar,
         bio=user.bio,
-        created_at=user.created_at,
+        created_at=str(user.created_at) if user.created_at else None,
     )
 
 

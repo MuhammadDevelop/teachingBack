@@ -20,40 +20,48 @@ async def get_leaderboard(
     db: AsyncSession = Depends(get_db),
 ):
     """Get student leaderboard based on completed lessons + test scores"""
-    # Get all students with their scores
+    # Get all active students
     result = await db.execute(
         select(User).where(User.role == "student", User.is_active == True)
     )
     users = result.scalars().all()
+    if not users:
+        return []
+
+    user_ids = [u.id for u in users]
+
+    # Batch: test scores per user
+    test_scores_result = await db.execute(
+        select(TestSubmission.user_id, func.sum(TestSubmission.score)).where(
+            TestSubmission.user_id.in_(user_ids),
+            TestSubmission.passed == True
+        ).group_by(TestSubmission.user_id)
+    )
+    test_scores_map = dict(test_scores_result.all())
+
+    # Batch: completed lessons per user
+    completed_result = await db.execute(
+        select(LessonProgress.user_id, func.count()).where(
+            LessonProgress.user_id.in_(user_ids),
+            LessonProgress.is_completed == True
+        ).group_by(LessonProgress.user_id)
+    )
+    completed_map = dict(completed_result.all())
+
+    # Batch: exam scores per user
+    exam_result = await db.execute(
+        select(ExamSubmission.user_id, func.sum(ExamSubmission.percentage)).where(
+            ExamSubmission.user_id.in_(user_ids),
+            ExamSubmission.passed == True
+        ).group_by(ExamSubmission.user_id)
+    )
+    exam_scores_map = dict(exam_result.all())
 
     leaderboard = []
     for user in users:
-        # Count test scores
-        test_result = await db.execute(
-            select(func.sum(TestSubmission.score)).where(
-                TestSubmission.user_id == user.id,
-                TestSubmission.passed == True
-            )
-        )
-        test_score = test_result.scalar() or 0
-
-        # Count completed lessons
-        progress_result = await db.execute(
-            select(func.count()).where(
-                LessonProgress.user_id == user.id,
-                LessonProgress.is_completed == True
-            )
-        )
-        completed_lessons = progress_result.scalar() or 0
-
-        # Count exam scores
-        exam_result = await db.execute(
-            select(func.sum(ExamSubmission.percentage)).where(
-                ExamSubmission.user_id == user.id,
-                ExamSubmission.passed == True
-            )
-        )
-        exam_score = exam_result.scalar() or 0
+        test_score = test_scores_map.get(user.id, 0) or 0
+        completed_lessons = completed_map.get(user.id, 0) or 0
+        exam_score = exam_scores_map.get(user.id, 0) or 0
 
         total_score = test_score + (completed_lessons * 5) + exam_score
 
