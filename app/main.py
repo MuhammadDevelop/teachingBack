@@ -14,7 +14,6 @@ from app.routers import auth, courses, payments, admin
 from app.routers import profile, tests, games, homework, exams, rating, chat, certificates, results
 from app.routers import questions
 from app.config import get_settings
-from app.services.telegram_service import create_webhook_bot, setup_webhook
 
 settings = get_settings()
 bot_app = None
@@ -58,32 +57,52 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Migration error: {e}")
 
-    # 3. Setup telegram bot webhook
+    # 3. Bot ni polling mode da background task sifatida ishlatish
+    # (webhook o'rniga polling — Render da ishonchli ishlaydi)
+    import asyncio
+    from app.services.telegram_service import build_bot_app
+
+    bot_task = None
     try:
-        bot_app = create_webhook_bot(AsyncSessionLocal)
+        bot_app = build_bot_app(AsyncSessionLocal)
         if bot_app:
-            await bot_app.initialize()
-            if settings.render_external_url:
-                webhook_url = f"{settings.render_external_url}/webhook/telegram"
-                await setup_webhook(bot_app, webhook_url)
-                print(f"Bot webhook tayyor: {webhook_url}")
-            else:
-                print("RENDER_EXTERNAL_URL yoq")
+            # Eski webhookni o'chirish (agar mavjud bo'lsa)
+            import httpx
+            from app.config import get_settings as _gs
+            _s = _gs()
+            async with httpx.AsyncClient(timeout=10) as _c:
+                await _c.post(
+                    f"https://api.telegram.org/bot{_s.telegram_bot_token}/deleteWebhook",
+                    json={"drop_pending_updates": True}
+                )
+
+            # Bot ni polling mode da background task sifatida ishga tushirish
+            async def run_polling():
+                async with bot_app:
+                    await bot_app.start()
+                    await bot_app.updater.start_polling(drop_pending_updates=True)
+                    print("Bot polling mode da ishlayapti")
+                    await asyncio.Event().wait()
+
+            bot_task = asyncio.create_task(run_polling())
+            print("Bot polling task yaratildi")
         else:
-            print("Bot token yoq")
+            print("Bot token yoq - bot ishlamaydi")
     except Exception as e:
-        print(f"Bot setup xatolik: {e}")
+        print(f"Bot task xatolik: {e}")
         import traceback
         traceback.print_exc()
-        bot_app = None
 
     yield
 
-    if bot_app:
+    # Bot ni to'xtatish
+    if bot_task and not bot_task.done():
+        bot_task.cancel()
         try:
-            await bot_app.shutdown()
-        except Exception as e:
-            print(f"Bot shutdown xatolik: {e}")
+            await bot_task
+        except asyncio.CancelledError:
+            pass
+        print("Bot to'xtatildi")
 
 
 app = FastAPI(
