@@ -13,7 +13,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer(auto_error=False)
 
-BOT_LINK = "https://t.me/Mdev_02_bot"
+BOT_LINK = "https://t.me/wssefgfg_bot"
 
 
 def normalize_phone(raw: str) -> str:
