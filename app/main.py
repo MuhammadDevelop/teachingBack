@@ -62,17 +62,17 @@ async def lifespan(app: FastAPI):
     try:
         bot_app = create_webhook_bot(AsyncSessionLocal)
         if bot_app:
-            await bot_app.initialize()  # Webhook mode: faqat initialize(), start() EMAS!
+            await bot_app.initialize()
             if settings.render_external_url:
                 webhook_url = f"{settings.render_external_url}/webhook/telegram"
                 await setup_webhook(bot_app, webhook_url)
-                print(f"🤖 Bot webhook: {webhook_url}")
+                print(f"Bot webhook tayyor: {webhook_url}")
             else:
-                print("ℹ️ RENDER_EXTERNAL_URL yo'q — webhook o'rnatilmadi")
+                print("RENDER_EXTERNAL_URL yoq")
         else:
-            print("⚠️ Bot token yo'q — bot ishlamaydi")
+            print("Bot token yoq")
     except Exception as e:
-        print(f"⚠️ Bot setup error: {e}")
+        print(f"Bot setup xatolik: {e}")
         import traceback
         traceback.print_exc()
         bot_app = None
@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
         try:
             await bot_app.shutdown()
         except Exception as e:
-            print(f"Bot shutdown error: {e}")
+            print(f"Bot shutdown xatolik: {e}")
 
 
 app = FastAPI(

@@ -1,5 +1,6 @@
 import random
 import string
+import asyncio
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -15,27 +16,26 @@ def generate_code() -> str:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("🔄 Kodni yangilash", callback_data="refresh_code")]]
+    keyboard = [[InlineKeyboardButton("Kodni yangilash", callback_data="refresh_code")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "👋 <b>Salom! MDev Online Teaching platformasiga xush kelibsiz!</b>\n\n"
-        "📱 Login kodi olish uchun telefon raqamingizni yuboring.\n\n"
-        "📲 Raqamni quyidagi formatda yuboring:\n"
+        "<b>Salom! MDev Online Teaching platformasiga xush kelibsiz!</b>\n\n"
+        "Login kodi olish uchun telefon raqamingizni yuboring.\n\n"
+        "Raqamni quyidagi formatda yuboring:\n"
         "<code>998901234567</code>\n\n"
-        "🔄 Oldingi kodingizni yangilash uchun tugmani bosing:",
+        "Oldingi kodingizni yangilash uchun tugmani bosing:",
         parse_mode="HTML",
         reply_markup=reply_markup
     )
 
 
-def create_webhook_bot(db_session_factory):
-    """Create bot application for webhook mode (Render)"""
+def build_bot_app(db_session_factory):
+    """Bot Application ni yaratadi (handlers bilan)"""
     settings = get_settings()
     if not settings.telegram_bot_token:
         return None
 
     async def send_code_to_user(db, user, telegram_id, username=None):
-        """Generate and save code for user"""
         code = generate_code()
         user.verification_code = code
         user.telegram_id = telegram_id
@@ -58,31 +58,30 @@ def create_webhook_bot(db_session_factory):
                 user = result.scalar_one_or_none()
                 if user:
                     code = await send_code_to_user(db, user, telegram_id, update.effective_user.username)
-                    keyboard = [[InlineKeyboardButton("🔄 Kodni yangilash", callback_data="refresh_code")]]
+                    keyboard = [[InlineKeyboardButton("Kodni yangilash", callback_data="refresh_code")]]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     await update.message.reply_text(
-                        f"✅ Sizning login kodingiz:\n\n"
+                        f"Sizning login kodingiz:\n\n"
                         f"<code>{code}</code>\n\n"
-                        f"⏱ Kod 10 daqiqa amal qiladi.\n"
+                        f"Kod 10 daqiqa amal qiladi.\n"
                         f"Platformaga kirish uchun ushbu kodni kiriting.\n\n"
-                        f"🔄 Yangi kod kerak bo'lsa tugmani bosing:",
+                        f"Yangi kod kerak bolsa tugmani bosing:",
                         parse_mode="HTML",
                         reply_markup=reply_markup
                     )
                 else:
                     await update.message.reply_text(
-                        "❌ Bu raqam ro'yxatdan o'tmagan.\n"
-                        "Avval saytda ro'yxatdan o'ting va telefon raqamingizni kiriting."
+                        "Bu raqam royxatdan otmagan.\n"
+                        "Avval saytda royxatdan oting va telefon raqamingizni kiriting."
                     )
         else:
             await update.message.reply_text(
-                "📱 Iltimos, to'g'ri formatda raqam yuboring:\n"
+                "Iltimos, togri formatda raqam yuboring:\n"
                 "<code>998901234567</code>",
                 parse_mode="HTML"
             )
 
     async def handle_refresh_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle 'Refresh code' button press"""
         query = update.callback_query
         await query.answer()
         telegram_id = update.effective_user.id
@@ -97,19 +96,19 @@ def create_webhook_bot(db_session_factory):
                 user.code_expires_at = datetime.utcnow() + timedelta(minutes=10)
                 await db.commit()
 
-                keyboard = [[InlineKeyboardButton("🔄 Kodni yangilash", callback_data="refresh_code")]]
+                keyboard = [[InlineKeyboardButton("Kodni yangilash", callback_data="refresh_code")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(
-                    f"🔄 Yangi login kodingiz:\n\n"
+                    f"Yangi login kodingiz:\n\n"
                     f"<code>{code}</code>\n\n"
-                    f"⏱ Kod 10 daqiqa amal qiladi.\n\n"
-                    f"🔄 Yana yangi kod kerak bo'lsa tugmani bosing:",
+                    f"Kod 10 daqiqa amal qiladi.\n\n"
+                    f"Yana yangi kod kerak bolsa tugmani bosing:",
                     parse_mode="HTML",
                     reply_markup=reply_markup
                 )
             else:
                 await query.edit_message_text(
-                    "❌ Siz hali ro'yxatdan o'tmagansiz.\n"
+                    "Siz hali royxatdan otmagansiz.\n"
                     "Avval telefon raqamingizni yuboring."
                 )
 
@@ -120,45 +119,63 @@ def create_webhook_bot(db_session_factory):
     return app
 
 
-async def run_bot_polling(db_session_factory):
-    """Run bot in polling mode (for local development)"""
-    app = create_webhook_bot(db_session_factory)
-    if not app:
-        print("TELEGRAM_BOT_TOKEN not set, bot won't run")
-        return
-
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(drop_pending_updates=True)
-    print("🤖 Bot running in polling mode...")
-    import asyncio
-    await asyncio.Event().wait()
+# === WEBHOOK MODE (Render uchun) ===
+def create_webhook_bot(db_session_factory):
+    """Webhook mode uchun bot (FastAPI bilan birga ishlaydi)"""
+    return build_bot_app(db_session_factory)
 
 
 async def setup_webhook(app, webhook_url: str):
-    """Set webhook URL for the bot"""
+    """Webhook URL ni Telegram ga o'rnatish"""
     settings = get_settings()
     if not settings.telegram_bot_token:
         return
 
     import httpx
-    async with httpx.AsyncClient() as client:
-        url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/setWebhook"
-        resp = await client.post(url, json={"url": webhook_url})
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Avval eski webhookni o'chirish
+        await client.post(
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/deleteWebhook",
+            json={"drop_pending_updates": True}
+        )
+        # Yangi webhook o'rnatish
+        resp = await client.post(
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/setWebhook",
+            json={
+                "url": webhook_url,
+                "allowed_updates": ["message", "callback_query"],
+                "drop_pending_updates": True,
+            }
+        )
         data = resp.json()
         if data.get("ok"):
-            print(f"✅ Webhook set: {webhook_url}")
+            print(f"Webhook ornatildi: {webhook_url}")
         else:
-            print(f"❌ Webhook error: {data}")
+            print(f"Webhook xatolik: {data}")
 
 
+# === POLLING MODE (lokal yoki alohida process) ===
+async def run_bot_polling(db_session_factory):
+    """Polling mode da botni ishlatish"""
+    app = build_bot_app(db_session_factory)
+    if not app:
+        print("TELEGRAM_BOT_TOKEN yoq, bot ishlamaydi")
+        return
+
+    print("Bot polling mode da ishga tushmoqda...")
+    async with app:
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        print("Bot polling mode da ishlayapti!")
+        await asyncio.Event().wait()  # abadiy kutish
+
+
+# === ADMIN NOTIFICATION ===
 async def send_to_telegram_group(message: str):
-    """Send a message to the Telegram group/admin"""
+    """Admin ga Telegram orqali xabar yuborish"""
     settings = get_settings()
     if not settings.telegram_bot_token or not settings.telegram_group_chat_id:
-        print("⚠️ Telegram group chat ID yoki bot token sozlanmagan")
-        print(f"   bot_token: {'bor' if settings.telegram_bot_token else 'YO`Q'}")
-        print(f"   group_chat_id: '{settings.telegram_group_chat_id}'")
+        print("Telegram bot token yoki chat_id yoq")
         return False
 
     try:
@@ -170,36 +187,25 @@ async def send_to_telegram_group(message: str):
                 "text": message,
                 "parse_mode": "HTML",
             }
-            print(f"📤 Telegram ga yuborilmoqda: chat_id={settings.telegram_group_chat_id}")
             resp = await client.post(url, json=payload)
             data = resp.json()
             if data.get("ok"):
-                print("✅ Telegram guruhga xabar yuborildi")
+                print("Admin ga xabar yuborildi")
                 return True
             else:
-                error_code = data.get("error_code", "")
-                description = data.get("description", "")
-                print(f"❌ Telegram xatolik: [{error_code}] {description}")
-                print(f"   To'liq javob: {data}")
+                print(f"Telegram xatolik: {data.get('description')}")
                 return False
-    except httpx.TimeoutException:
-        print("⚠️ Telegram ga yuborishda timeout (15s)")
-        return False
     except Exception as e:
-        print(f"⚠️ Telegram ga yuborishda xatolik: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Telegram yuborishda xatolik: {e}")
         return False
 
 
 async def send_admin_notification(message: str, db_session_factory=None):
-    """Send notification to admin - tries group chat first, then admin's personal telegram_id"""
-    # 1. Avval group/admin chat_id ga yuborish
+    """Admin ga bildirishnoma yuborish"""
     success = await send_to_telegram_group(message)
     if success:
         return True
 
-    # 2. Agar ishlamasa, DB dan admin telegram_id ni topib yuborish
     if db_session_factory:
         try:
             settings = get_settings()
@@ -209,25 +215,21 @@ async def send_admin_notification(message: str, db_session_factory=None):
                 )
                 admin_user = result.scalar_one_or_none()
                 if admin_user and admin_user.telegram_id:
-                    print(f"🔄 Admin telegram_id orqali yuborilmoqda: {admin_user.telegram_id}")
                     import httpx
                     async with httpx.AsyncClient(timeout=15.0) as client:
-                        url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
-                        resp = await client.post(url, json={
-                            "chat_id": admin_user.telegram_id,
-                            "text": message,
-                            "parse_mode": "HTML",
-                        })
+                        resp = await client.post(
+                            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                            json={
+                                "chat_id": admin_user.telegram_id,
+                                "text": message,
+                                "parse_mode": "HTML",
+                            }
+                        )
                         data = resp.json()
                         if data.get("ok"):
-                            print("✅ Admin ga shaxsiy xabar yuborildi")
+                            print("Admin ga shaxsiy xabar yuborildi")
                             return True
-                        else:
-                            print(f"❌ Admin shaxsiy xabar xatolik: {data}")
-                else:
-                    print("⚠️ DB da telegram_id bor admin topilmadi")
         except Exception as e:
-            print(f"⚠️ Admin notification fallback xatolik: {e}")
+            print(f"Admin notification xatolik: {e}")
 
     return False
-
