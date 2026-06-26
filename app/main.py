@@ -62,8 +62,7 @@ async def lifespan(app: FastAPI):
     try:
         bot_app = create_webhook_bot(AsyncSessionLocal)
         if bot_app:
-            await bot_app.initialize()
-            await bot_app.start()  # ← Bu kerak edi! bot_app.start() chaqirilmagan edi
+            await bot_app.initialize()  # Webhook mode: faqat initialize(), start() EMAS!
             if settings.render_external_url:
                 webhook_url = f"{settings.render_external_url}/webhook/telegram"
                 await setup_webhook(bot_app, webhook_url)
@@ -82,10 +81,9 @@ async def lifespan(app: FastAPI):
 
     if bot_app:
         try:
-            await bot_app.stop()
             await bot_app.shutdown()
         except Exception as e:
-            print(f"⚠️ Bot shutdown error: {e}")
+            print(f"Bot shutdown error: {e}")
 
 
 app = FastAPI(
