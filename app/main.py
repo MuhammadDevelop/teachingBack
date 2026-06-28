@@ -1,6 +1,9 @@
 import os
+import sys
 import traceback
 from contextlib import asynccontextmanager
+
+sys.stdout.reconfigure(encoding='utf-8')
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
